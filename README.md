@@ -1,7 +1,7 @@
 <div align="center">
     <img src="logo.png" width="15%" alt="logo">
     <h1 align="center">BNM Explorer</h1>
-    <p>A web-based runtime inspector and debugger for IL2CPP Unity games on Android.</p>
+    <p>A web-based runtime inspector and debugger for IL2CPP Unity games on Android/VR/Mobiles.</p>
     <a href="https://github.com/SilentErased/BNMExplorer/releases/latest"><b>✦︎ Download latest release ✦︎</b></a>
 </div>
 
@@ -24,7 +24,16 @@
 - **Component System**: Add or remove components at runtime.
 
 ### **Key Advantages**
-BNM Explorer runs an embedded HTTP server directly inside the game process. This means you can debug Android games wirelessly or via USB without complex setups. It bridges the gap between static analysis and runtime modification, powered by **BNM (ByNameModding)** and **BNM-Resolve**.
+BNM Explorer runs an embedded HTTP server directly inside the game process.
 
 ### **Requirements**
 - Patch game and insert our native mod
+
+### **I patched game and inserted native mod how to find website?**
+1. Get your IP
+```
+adb shell ip addr show wlan0
+```
+2. Find line like this: inet **192.168.1.101/24** brd 192.168.1.255 scope global wlan0
+3. Now open your webbrowser (your headset and device have to be connected on same wifi) and go to <IP>:8080 (192.168.1.101:8080 example)
+Done
