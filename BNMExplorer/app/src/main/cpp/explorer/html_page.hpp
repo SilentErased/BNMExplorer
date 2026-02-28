@@ -25,6 +25,7 @@ inline std::string GetExplorerHTML(int asmCount) {
     --comp-hdr: #3e3e3e;
     --input-bg: #2a2a2a;
     --input-brd: #1a1a1a;
+    --loop-active: #2a5c2a;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; font-size: 12px; }
 body { background: var(--bg-main); color: var(--fg); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
@@ -66,6 +67,10 @@ body { background: var(--bg-main); color: var(--fg); display: flex; flex-directi
 .btn:hover { background: #666; }
 .btn-red { background: #883333; }
 .btn-red:hover { background: #aa4444; }
+.btn-green { background: #2a5c2a; }
+.btn-green:hover { background: #3a7c3a; }
+.btn-orange { background: #7a4a00; }
+.btn-orange:hover { background: #9a6200; }
 .input { background: var(--input-bg); border: 1px solid var(--input-brd); color: #fff; padding: 3px 6px; width: 100%; outline: none; transition: background-color 0.3s; }
 .input:focus { border-color: var(--kw); }
 .input:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -92,6 +97,10 @@ body { background: var(--bg-main); color: var(--fg); display: flex; flex-directi
 .ctrl-method-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
 .ctrl-method-args { display: flex; flex-direction: column; gap: 5px; padding-left: 10px; border-left: 2px solid var(--kw); }
 .ctrl-res { margin-top: 5px; font-family: monospace; }
+.loop-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; background: var(--loop-active); padding: 4px 8px; border-radius: 2px; border: 1px solid #3a7c3a; }
+.loop-id { font-family: monospace; font-size: 10px; opacity: 0.6; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.script-comp-header { background: #2d3a2d; }
+.script-enabled-toggle { margin-right: 6px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -115,6 +124,7 @@ body { background: var(--bg-main); color: var(--fg); display: flex; flex-directi
             <div class="tab" onclick="switchTab('code')" id="tab-code">Inspector (Class)</div>
             <div class="tab" onclick="switchTab('inst')" id="tab-inst">Instances</div>
             <div class="tab" onclick="switchTab('ctrl')" id="tab-ctrl">Controller</div>
+            <div class="tab" onclick="switchTab('loops')" id="tab-loops">Loops</div>
         </div>
         <div class="main-panel active" id="pnl-scene">
             <div class="scene-manager">
@@ -159,6 +169,13 @@ body { background: var(--bg-main); color: var(--fg); display: flex; flex-directi
                 </div>
             </div>
         </div>
+        <div class="main-panel" id="pnl-loops" style="padding:10px;flex-direction:column;gap:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-weight:bold;font-size:13px;">Active Loops</span>
+                <button class="btn btn-red" onclick="removeAllLoops()">Stop All</button>
+            </div>
+            <div id="loops-list" style="margin-top:6px;"></div>
+        </div>
     </div>
 </div>
 
@@ -170,6 +187,8 @@ body { background: var(--bg-main); color: var(--fg); display: flex; flex-directi
     <symbol id="svg-comp" viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></symbol>
     <symbol id="svg-invoke" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
     <symbol id="svg-save" viewBox="0 0 16 16"><path d="M2 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4.207a1 1 0 0 0-.293-.707l-2.5-2.5A1 1 0 0 0 10.5 1H2zm3 2h6v3H5V3zm7 10H4V9h8v4z"/></symbol>
+    <symbol id="svg-loop" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></symbol>
+    <symbol id="svg-script" viewBox="0 0 24 24"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></symbol>
 </svg>
 
 <script>
@@ -177,7 +196,8 @@ let curAsm = "", curNs = "", curCls = "";
 let clsCache = {};
 let allClsCache = null;
 let fullSceneData = [];
-let sceneRoots = [];
+let sceneRoots =[];
+let activeLoops = {};
 
 async function init() {
     let asms = await fetch('/api/assemblies').then(r => r.json());
@@ -229,22 +249,22 @@ async function loadCls(el, asm, ns, name) {
     clsCache = d;
 
     let indent = d.ns ? '\t\t' : '\t';
-    let code = `<span class="c-cm">// Assembly: ${esc(asm)}</span>\n`;
+    let code = `<span class="c-cm"></span>\n`;
     if (d.ns) code += `<span class="c-kw">namespace</span> <span class="c-type">${esc(d.ns)}</span>\n{\n`;
     code += (d.ns ? '\t' : '') + `<span class="c-kw">public class</span> <span class="c-type">${esc(d.name)}</span>`;
     if (d.parent) code += ` : <span class="c-type">${esc(d.parent)}</span>`;
     code += '\n' + (d.ns ? '\t' : '') + '{\n';
 
-    for (let f of d.fields || []) {
-        code += `${indent}<span class="c-cm">// Offset: 0x${f.off.toString(16).toUpperCase()}</span>\n`;
+    for (let f of d.fields ||[]) {
+        code += `${indent}<span class="c-cm"></span>\n`;
         code += `${indent}<span class="c-kw">public</span> ${f.s?'<span class="c-kw">static</span> ':''}<span class="c-type">${esc(f.type)}</span> ${esc(f.name)};\n\n`;
     }
-    for (let p of d.props || []) {
+    for (let p of d.props ||[]) {
         code += `${indent}<span class="c-kw">public</span> <span class="c-type">${esc(p.type)}</span> ${esc(p.name)} { ${p.g?'<span class="c-kw">get</span>; ':''}${p.s?'<span class="c-kw">set</span>; ':''}}\n\n`;
     }
     for (let m of d.methods || []) {
-        let prm = (m.params || []).map(p => `<span class="c-type">${esc(p.t)}</span> ${p.n}`).join(', ');
-        code += `${indent}<span class="c-cm">// Address: 0x${m.addr}</span>\n`;
+        let prm = (m.params ||[]).map(p => `<span class="c-type">${esc(p.t)}</span> ${p.n}`).join(', ');
+        code += `${indent}<span class="c-cm"></span>\n`;
         code += `${indent}<span class="c-kw">public</span> ${m.s?'<span class="c-kw">static</span> ':''}<span class="c-type">${esc(m.ret)}</span> <span class="c-mth">${esc(m.name)}</span>(${prm}) { }\n\n`;
     }
 
@@ -318,6 +338,7 @@ function switchTab(id) {
     document.querySelectorAll('.main-panel').forEach(p => p.classList.remove('active'));
     document.getElementById(`tab-${id}`).classList.add('active');
     document.getElementById(`pnl-${id}`).classList.add('active');
+    if (id === 'loops') refreshLoopsUI();
 }
 
 async function doSearch(e) {
@@ -327,7 +348,7 @@ async function doSearch(e) {
     if (!allClsCache) allClsCache = await fetch('/api/allclasses').then(r => r.json());
     let res = allClsCache.filter(c => c.name.toLowerCase().includes(q) || c.ns?.toLowerCase().includes(q));
     let byAsm = {};
-    for (let c of res) { if (!byAsm[c.a]) byAsm[c.a] = []; byAsm[c.a].push(c); }
+    for (let c of res) { if (!byAsm[c.a]) byAsm[c.a] =[]; byAsm[c.a].push(c); }
     let html = '';
     for (let a of Object.keys(byAsm).sort()) {
         html += `<ul class="tree-node"><div class="tree-node-content" onclick="toggleAsm(this,'${a}')"><span class="tree-arrow open">&#9654;</span><div class="tree-icon"><svg><use href="#svg-asm"></use></svg></div><span>${a}</span></div><div class="tree-children open">`;
@@ -352,7 +373,7 @@ async function loadScene() {
 function filterScene() {
     let q = document.getElementById('sceneSearch').value.toLowerCase();
     let map = {};
-    sceneRoots = [];
+    sceneRoots =[];
     for (let g of fullSceneData) {
         if (!map[g.addr]) map[g.addr] = { ...g, children: [] };
         else Object.assign(map[g.addr], g);
@@ -383,13 +404,71 @@ async function inspectGO(el, addr) {
         <div class="tree-icon"><svg><use href="#svg-go"></use></svg></div>
         <input type="text" class="input" value="${esc(d.name)}" onchange="updateGO('${d.addr}','gameobject','name',this.value)">
     </div>`;
+
     if (d.transform)
-        h += buildCompUI("Transform", true, [
+        h += buildCompUI("Transform", true,[
             { lbl:"Position", id:"p", val:d.transform.p, type:"UnityEngine.Vector3", canWrite:true },
             { lbl:"Rotation", id:"r", val:d.transform.r, type:"UnityEngine.Vector3", canWrite:true },
             { lbl:"Scale",    id:"s", val:d.transform.s, type:"UnityEngine.Vector3", canWrite:true }
         ], d.transform.addr, 'transform', true);
+
+    if (d.scripts && d.scripts.length > 0) {
+        for (let sc of d.scripts) {
+            h += buildScriptCompUI(sc);
+        }
+    }
+
     document.getElementById('scene-insp').innerHTML = h;
+}
+
+function buildScriptCompUI(sc) {
+    let uid = Math.random().toString(36).substr(2, 9);
+    let enabledChk = `<input type="checkbox" class="script-enabled-toggle" ${sc.enabled?'checked':''} title="enabled" onchange="updateScriptEnabled('${sc.addr}',this.checked)" onclick="event.stopPropagation()">`;
+    let h = `<div class="insp-comp"><div class="insp-comp-header script-comp-header" onclick="toggleComp('${uid}')">
+        ${enabledChk}
+        <div class="tree-icon" style="color:var(--mth)"><svg><use href="#svg-script"></use></svg></div>
+        <span style="color:var(--mth)">${esc(sc.name)}</span>
+        ${sc.ns ? `<span style="opacity:0.5;font-size:10px;margin-left:4px;">${esc(sc.ns)}</span>` : ''}
+        <span style="opacity:0.4;font-size:10px;margin-left:auto;">0x${sc.addr}</span>
+    </div><div class="insp-comp-body open" id="${uid}">`;
+
+    if (!sc.fields || sc.fields.length === 0) {
+        h += `<div style="color:#666;font-size:11px;padding:4px 0;">No readable fields</div>`;
+    } else {
+        for (let r of sc.fields) {
+            let da = `data-addr="${sc.addr}" data-target-type="script" data-prop-id="${r.name}" data-val-type="${r.type}" data-is-prop="${r.isProp?'true':'false'}" data-comp-ns="${esc(sc.ns)}" data-comp-cls="${esc(sc.name)}" data-comp-asm="${esc(sc.asm||'')}"`;
+
+            let dis = r.canWrite === false ? 'disabled' : '';
+            h += `<div class="insp-row"><div class="insp-lbl" title="${esc(r.name)}">${esc(r.name)}</div><div class="insp-val">`;
+            if (r.type === "UnityEngine.Vector3" || r.type === "Vector3") {
+                let v = Array.isArray(r.val) ? r.val : JSON.parse(r.val || "[0,0,0]");
+                ['X','Y','Z'].forEach((lbl,i) => { h += `<div style="flex:1;display:flex"><span class="vec-lbl">${lbl}</span><input class="input vec-input" type="number" step="any" value="${v[i]}" ${da} ${dis}></div>`; });
+            } else if (r.type === "UnityEngine.Color" || r.type === "Color") {
+                let v = JSON.parse(r.val || "[1,1,1,1]");
+                let hex = "#" + ((1<<24)+(Math.round(v[0]*255)<<16)+(Math.round(v[1]*255)<<8)+Math.round(v[2]*255)).toString(16).slice(1).padStart(6,'0');
+                h += `<input type="color" class="input sing-input" value="${hex}" style="padding:0;height:20px" ${da} ${dis}>`;
+            } else if (r.type === "System.Boolean" || r.type === "Boolean" || r.type === "bool") {
+                h += `<input type="checkbox" class="sing-input" ${r.val===true||r.val==="true"?'checked':''} ${da} ${dis}>`;
+            } else {
+                let isNum =["System.Int32","Int32","int","System.Single","Single","float","System.Double","Double","double","System.Int64","Int64","long","System.UInt32","UInt32","uint","System.UInt64","UInt64","ulong","System.Byte","Byte","byte"].includes(r.type);
+                let sv = String(r.val).replace(/"/g,"&quot;");
+                if (r.type==="System.String"||r.type==="String"||r.type==="string")
+                    if (sv.startsWith('&quot;') && sv.endsWith('&quot;')) sv = sv.slice(6, -6);
+                h += `<input class="input sing-input" ${isNum?'type="number" step="any"':'type="text"'} value="${sv}" ${da} ${dis}>`;
+            }
+            if (r.canWrite !== false) {
+                h += `<button class="btn" style="margin-left:5px" onclick="handleManualSave(this)" ${dis}><svg><use href="#svg-save"></use></svg></button>`;
+                h += `<button class="btn btn-orange" style="margin-left:2px;padding:4px 6px;" title="Loop" onclick="promptLoop(this)"><svg><use href="#svg-loop"></use></svg></button>`;
+            }
+            h += `</div></div>`;
+        }
+    }
+    return h + '</div></div>';
+}
+
+async function updateScriptEnabled(addr, val) {
+    await fetch('/api/scene/update', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ addr, type:'script', prop:'enabled', val: String(val) }) });
 }
 
 function buildCompUI(title, isTrans, rows, targetAddr, targetType, withSave) {
@@ -400,8 +479,7 @@ function buildCompUI(title, isTrans, rows, targetAddr, targetType, withSave) {
         let dis = r.canWrite === false ? 'disabled' : '';
         h += `<div class="insp-row"><div class="insp-lbl" title="${esc(r.name||r.lbl)}">${esc(r.name||r.lbl)}</div><div class="insp-val">`;
         if (isTrans || r.type === "UnityEngine.Vector3" || r.type === "Vector3") {
-            let v = Array.isArray(r.val) ? r.val : JSON.parse(r.val || "[0,0,0]");
-            ['X','Y','Z'].forEach((lbl,i) => { h += `<div style="flex:1;display:flex"><span class="vec-lbl">${lbl}</span><input class="input vec-input" type="number" step="any" value="${v[i]}" ${da} ${dis}></div>`; });
+            let v = Array.isArray(r.val) ? r.val : JSON.parse(r.val || "[0,0,0]");['X','Y','Z'].forEach((lbl,i) => { h += `<div style="flex:1;display:flex"><span class="vec-lbl">${lbl}</span><input class="input vec-input" type="number" step="any" value="${v[i]}" ${da} ${dis}></div>`; });
         } else if (r.type === "UnityEngine.Color" || r.type === "Color") {
             let v = JSON.parse(r.val || "[1,1,1,1]");
             let hex = "#" + ((1<<24)+(Math.round(v[0]*255)<<16)+(Math.round(v[1]*255)<<8)+Math.round(v[2]*255)).toString(16).slice(1).padStart(6,'0');
@@ -409,13 +487,17 @@ function buildCompUI(title, isTrans, rows, targetAddr, targetType, withSave) {
         } else if (r.type === "System.Boolean" || r.type === "Boolean" || r.type === "bool") {
             h += `<input type="checkbox" class="sing-input" ${r.val===true||r.val==="true"?'checked':''} ${da} ${dis}>`;
         } else {
-            let isNum = ["System.Int32","Int32","int","System.Single","Single","float"].includes(r.type);
+            let isNum =["System.Int32","Int32","int","System.Single","Single","float","System.Double","Double","double","System.Int64","Int64","long","System.UInt32","UInt32","uint","System.UInt64","UInt64","ulong","System.Byte","Byte","byte"].includes(r.type);
             let sv = String(r.val).replace(/"/g,"&quot;");
             if (r.type==="System.String"||r.type==="String"||r.type==="string")
                 if (sv.startsWith('&quot;') && sv.endsWith('&quot;')) sv = sv.slice(6, -6);
             h += `<input class="input sing-input" ${isNum?'type="number" step="any"':'type="text"'} value="${sv}" ${da} ${dis}>`;
         }
-        if (withSave) h += `<button class="btn" style="margin-left:5px" onclick="handleManualSave(this)" ${dis}><svg><use href="#svg-save"></use></svg></button>`;
+        if (withSave) {
+            h += `<button class="btn" style="margin-left:5px" onclick="handleManualSave(this)" ${dis}><svg><use href="#svg-save"></use></svg></button>`;
+            if (targetType === 'instance')
+                h += `<button class="btn btn-orange" style="margin-left:2px;padding:4px 6px;" title="Loop" onclick="promptLoop(this)"><svg><use href="#svg-loop"></use></svg></button>`;
+        }
         h += `</div></div>`;
     }
     return h + '</div></div>';
@@ -426,6 +508,52 @@ function toggleComp(id) { document.getElementById(id).classList.toggle('open'); 
 function handleManualSave(btn) {
     let el = btn.parentElement.querySelector('.vec-input') || btn.parentElement.querySelector('.sing-input');
     if (el) processSave(el);
+}
+
+function promptLoop(btn) {
+    let el = btn.parentElement.querySelector('.vec-input') || btn.parentElement.querySelector('.sing-input');
+    if (!el) return;
+
+    let valStr = '';
+    if (el.classList.contains('vec-input')) {
+        let ins = el.parentElement.parentElement.querySelectorAll('input.vec-input');
+        valStr = `[${ins[0].value},${ins[1].value},${ins[2].value}]`;
+    } else if (el.type === 'color') {
+        let hx = el.value;
+        valStr = `[${parseInt(hx.substr(1,2),16)/255},${parseInt(hx.substr(3,2),16)/255},${parseInt(hx.substr(5,2),16)/255},1]`;
+    } else if (el.type === 'checkbox') {
+        valStr = el.checked ? 'true' : 'false';
+    } else {
+        valStr = el.value;
+    }
+
+    let ms = prompt(`Loop interval (ms)`, "100");
+    if (ms === null) return;
+    let interval = parseInt(ms) || 100;
+
+    let addr    = el.getAttribute('data-addr');
+    let tt      = el.getAttribute('data-target-type');
+    let name    = el.getAttribute('data-prop-id');
+    let ftype   = el.getAttribute('data-val-type');
+    let isProp  = el.getAttribute('data-is-prop') === 'true';
+    let compNs  = el.getAttribute('data-comp-ns') || '';
+    let compCls = el.getAttribute('data-comp-cls') || '';
+    let compAsm = el.getAttribute('data-comp-asm') || '';
+
+    let asm = document.getElementById('ctrl-asm')?.value || '';
+    let ns  = document.getElementById('ctrl-ns')?.value  || compNs;
+    let cls = document.getElementById('ctrl-cls')?.value || compCls;
+
+    if (tt === 'script') { ns = compNs; cls = compCls; asm = compAsm; }
+
+    fetch('/api/loop/add', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ addr, asm, ns, cls, name, ftype, isProp, val: valStr, interval }) })
+    .then(r => r.json()).then(d => {
+        if (d.ok) {
+            btn.style.background = '#2a5c2a';
+            refreshLoopsUI();
+        }
+    });
 }
 
 function processSave(el) {
@@ -450,17 +578,27 @@ function processSave(el) {
 }
 
 function dispatchUpdate(el, val) {
-    let type = el.getAttribute('data-target-type');
-    let addr = el.getAttribute('data-addr');
-    let prop = el.getAttribute('data-prop-id');
-    let vtype = el.getAttribute('data-val-type');
-    let isProp = el.getAttribute('data-is-prop') === 'true';
+    let type    = el.getAttribute('data-target-type');
+    let addr    = el.getAttribute('data-addr');
+    let prop    = el.getAttribute('data-prop-id');
+    let vtype   = el.getAttribute('data-val-type');
+    let isProp  = el.getAttribute('data-is-prop') === 'true';
+    let compNs  = el.getAttribute('data-comp-ns') || '';
+    let compCls = el.getAttribute('data-comp-cls') || '';
+    let compAsm = el.getAttribute('data-comp-asm') || '';
+
     if (type === 'transform') updateGO(addr, 'transform', prop, val);
     else if (type === 'instance') updateInstField(addr, prop, vtype, isProp, val);
+    else if (type === 'script') updateScriptField(addr, prop, vtype, isProp, val, compNs, compCls, compAsm);
 }
 
 async function updateGO(addr, type, prop, val) {
     await fetch('/api/scene/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ addr, type, prop, val: String(val) }) });
+}
+
+async function updateScriptField(addr, name, ftype, isProp, val, compNs, compCls, compAsm) {
+    await fetch('/api/scene/update', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ addr, type:'script', prop: name, prop2: name, ftype, isProp, val: String(val), compNs, compCls, compAsm: compAsm||'' }) });
 }
 
 async function updateInstField(addr, name, ftype, isProp, val) {
@@ -468,6 +606,35 @@ async function updateInstField(addr, name, ftype, isProp, val) {
     let ns  = document.getElementById('ctrl-ns').value;
     let cls = document.getElementById('ctrl-cls').value;
     await fetch('/api/instance/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ addr, asm, ns, cls, name, ftype, isProp, val: String(val) }) });
+}
+
+async function refreshLoopsUI() {
+    let loops = await fetch('/api/loop/list').then(r => r.json());
+    let el = document.getElementById('loops-list');
+    if (!loops.length) { el.innerHTML = '<div style="color:#666;padding:8px 0;"></div>'; return; }
+    let h = '';
+    for (let lp of loops) {
+        h += `<div class="loop-row">
+            <svg style="width:12px;height:12px;fill:var(--mth)"><use href="#svg-loop"></use></svg>
+            <span class="loop-id">${esc(lp.cls)}.${esc(lp.name)}</span>
+            <span style="color:var(--str);font-family:monospace;">${esc(lp.val)}</span>
+            <span style="color:#888;white-space:nowrap;">${lp.interval}ms</span>
+            <button class="btn btn-red" style="padding:2px 8px;" onclick="removeLoop('${esc(lp.id)}',this)">Stop</button>
+        </div>`;
+    }
+    el.innerHTML = h;
+}
+
+async function removeLoop(id, btn) {
+    await fetch('/api/loop/remove', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id }) });
+    if (btn) btn.closest('.loop-row').remove();
+    let el = document.getElementById('loops-list');
+    if (!el.children.length) el.innerHTML = '<div style="color:#666;padding:8px 0;"></div>';
+}
+
+async function removeAllLoops() {
+    await fetch('/api/loop/removeall', { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
+    refreshLoopsUI();
 }
 
 init();

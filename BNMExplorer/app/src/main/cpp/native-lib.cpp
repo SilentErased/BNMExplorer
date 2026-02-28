@@ -1,23 +1,47 @@
 #include <jni.h>
-#include <android/log.h>
 #include <thread>
 #include <string>
 #include <vector>
 #include <sstream>
 #include <cstring>
 #include <cstdlib>
+#include <map>
+#include <mutex>
+#include <atomic>
+#include <chrono>
+#include <android/log.h>
 #include "Include/BNMResolve.hpp"
 #include "Include/httplib.h"
 #include "explorer/html_page.hpp"
 
-#define TAG "BNMExplorer"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "BNMExplorer", __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "BNMExplorer", __VA_ARGS__)
 
 using namespace BNM;
 using namespace BNM::IL2CPP;
 using namespace BNM::Structures::Unity;
 
 static int g_port = 8080;
+
+struct LoopEntry {
+    std::string addr;
+    std::string asm_;
+    std::string ns;
+    std::string cls;
+    std::string name;
+    std::string ftype;
+    bool isProp;
+    std::string val;
+    int intervalMs;
+    std::atomic<bool> active{true};
+};
+
+static std::mutex g_loopMtx;
+static std::map<std::string, std::shared_ptr<LoopEntry>> g_loops;
+
+static void AttachThread() {
+    BNM::AttachIl2Cpp();
+}
 
 static std::string jsEsc(const char* s) {
     if (!s) return "";
@@ -217,6 +241,7 @@ static std::string classDetailJson(const std::string& a, const std::string& ns, 
 struct InvokeResult { bool ok; std::string val, err; };
 
 static InvokeResult invokeMethod(const std::string& body) {
+    AttachThread();
     InvokeResult res = {false, "", ""};
     std::string a = jsonVal(body, "asm"), ns = jsonVal(body, "ns"), cn = jsonVal(body, "cls"), mn = jsonVal(body, "method");
     bool isStatic = jsonVal(body, "static") == "true" || jsonVal(body, "static") == "1";
@@ -316,6 +341,7 @@ static InvokeResult invokeMethod(const std::string& body) {
 }
 
 static std::string instancesJson(const std::string& a, const std::string& ns, const std::string& cn) {
+    AttachThread();
     std::string full = ns.empty() ? cn : ns + "." + cn;
     std::string aNoExt = a;
     auto dp = aNoExt.find(".dll");
@@ -352,6 +378,7 @@ static std::string instancesJson(const std::string& a, const std::string& ns, co
 }
 
 static std::string sceneJson() {
+    AttachThread();
     auto fm = findObjsMethod();
     if (!fm.IsValid()) return "[]";
 
@@ -398,15 +425,55 @@ static std::string readField(const std::string& ft, Class& cls, Il2CppObject* in
     ok = false;
     if (!inst) return "";
     try {
-        if (ft=="System.Single"||ft=="Single"||ft=="float"||ft=="System.Double"||ft=="Double"||ft=="double") {
+        if (ft=="System.Single"||ft=="Single"||ft=="float") {
             float v = 0;
             if (getter) { Method<float> m(*getter); m.SetInstance(inst); v = m(); }
             else { Field<float> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);v=f();} }
+            ok = true; return std::to_string(v);
+        } else if (ft=="System.Double"||ft=="Double"||ft=="double") {
+            double v = 0;
+            if (getter) { Method<double> m(*getter); m.SetInstance(inst); v = m(); }
+            else { Field<double> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.Int32"||ft=="Int32"||ft=="int") {
             int v = 0;
             if (getter) { Method<int> m(*getter); m.SetInstance(inst); v = m(); }
             else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);v=f();} }
+            ok = true; return std::to_string(v);
+        } else if (ft=="System.UInt32"||ft=="UInt32"||ft=="uint") {
+            uint32_t v = 0;
+            if (getter) { Method<uint32_t> m(*getter); m.SetInstance(inst); v = m(); }
+            else { Field<uint32_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);v=f();} }
+            ok = true; return std::to_string(v);
+        } else if (ft=="System.Int64"||ft=="Int64"||ft=="long") {
+            int64_t v = 0;
+            if (getter) { Method<int64_t> m(*getter); m.SetInstance(inst); v = m(); }
+            else { Field<int64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);v=f();} }
+            ok = true; return std::to_string(v);
+        } else if (ft=="System.UInt64"||ft=="UInt64"||ft=="ulong") {
+            uint64_t v = 0;
+            if (getter) { Method<uint64_t> m(*getter); m.SetInstance(inst); v = m(); }
+            else { Field<uint64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);v=f();} }
+            ok = true; return std::to_string(v);
+        } else if (ft=="System.Int16"||ft=="Int16"||ft=="short") {
+            int16_t v = 0;
+            if (getter) { Method<int16_t> m(*getter); m.SetInstance(inst); v = m(); }
+            else { Field<int16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);v=f();} }
+            ok = true; return std::to_string(v);
+        } else if (ft=="System.UInt16"||ft=="UInt16"||ft=="ushort") {
+            uint16_t v = 0;
+            if (getter) { Method<uint16_t> m(*getter); m.SetInstance(inst); v = m(); }
+            else { Field<uint16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);v=f();} }
+            ok = true; return std::to_string(v);
+        } else if (ft=="System.Byte"||ft=="Byte"||ft=="byte") {
+            uint8_t v = 0;
+            if (getter) { Method<uint8_t> m(*getter); m.SetInstance(inst); v = m(); }
+            else { Field<uint8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);v=f();} }
+            ok = true; return std::to_string(v);
+        } else if (ft=="System.SByte"||ft=="SByte"||ft=="sbyte") {
+            int8_t v = 0;
+            if (getter) { Method<int8_t> m(*getter); m.SetInstance(inst); v = m(); }
+            else { Field<int8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.Boolean"||ft=="Boolean"||ft=="bool") {
             bool v = false;
@@ -436,14 +503,46 @@ static std::string readField(const std::string& ft, Class& cls, Il2CppObject* in
 static void writeField(const std::string& ft, Class& cls, Il2CppObject* inst, const std::string& name, MethodBase* setter, const std::string& v) {
     if (!inst) return;
     try {
-        if (ft=="System.Single"||ft=="Single"||ft=="float"||ft=="System.Double"||ft=="Double"||ft=="double") {
+        if (ft=="System.Single"||ft=="Single"||ft=="float") {
             float val = std::stof(v);
             if (setter) { Method<void> m(*setter); m.SetInstance(inst); m(val); }
             else { Field<float> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);f=val;} }
+        } else if (ft=="System.Double"||ft=="Double"||ft=="double") {
+            double val = std::stod(v);
+            if (setter) { Method<void> m(*setter); m.SetInstance(inst); m(val); }
+            else { Field<double> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);f=val;} }
         } else if (ft=="System.Int32"||ft=="Int32"||ft=="int") {
             int val = std::stoi(v);
             if (setter) { Method<void> m(*setter); m.SetInstance(inst); m(val); }
             else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);f=val;} }
+        } else if (ft=="System.UInt32"||ft=="UInt32"||ft=="uint") {
+            uint32_t val = (uint32_t)std::stoul(v);
+            if (setter) { Method<void> m(*setter); m.SetInstance(inst); m(val); }
+            else { Field<uint32_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);f=val;} }
+        } else if (ft=="System.Int64"||ft=="Int64"||ft=="long") {
+            int64_t val = std::stoll(v);
+            if (setter) { Method<void> m(*setter); m.SetInstance(inst); m(val); }
+            else { Field<int64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);f=val;} }
+        } else if (ft=="System.UInt64"||ft=="UInt64"||ft=="ulong") {
+            uint64_t val = std::stoull(v);
+            if (setter) { Method<void> m(*setter); m.SetInstance(inst); m(val); }
+            else { Field<uint64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);f=val;} }
+        } else if (ft=="System.Int16"||ft=="Int16"||ft=="short") {
+            int16_t val = (int16_t)std::stoi(v);
+            if (setter) { Method<void> m(*setter); m.SetInstance(inst); m(val); }
+            else { Field<int16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);f=val;} }
+        } else if (ft=="System.UInt16"||ft=="UInt16"||ft=="ushort") {
+            uint16_t val = (uint16_t)std::stoul(v);
+            if (setter) { Method<void> m(*setter); m.SetInstance(inst); m(val); }
+            else { Field<uint16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);f=val;} }
+        } else if (ft=="System.Byte"||ft=="Byte"||ft=="byte") {
+            uint8_t val = (uint8_t)std::stoul(v);
+            if (setter) { Method<void> m(*setter); m.SetInstance(inst); m(val); }
+            else { Field<uint8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);f=val;} }
+        } else if (ft=="System.SByte"||ft=="SByte"||ft=="sbyte") {
+            int8_t val = (int8_t)std::stoi(v);
+            if (setter) { Method<void> m(*setter); m.SetInstance(inst); m(val); }
+            else { Field<int8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){f.SetInstance(inst);f=val;} }
         } else if (ft=="System.Boolean"||ft=="Boolean"||ft=="bool") {
             bool val = v=="true"||v=="1";
             if (setter) { Method<void> m(*setter); m.SetInstance(inst); m(val); }
@@ -465,6 +564,7 @@ static void writeField(const std::string& ft, Class& cls, Il2CppObject* inst, co
 }
 
 static std::string goInfoJson(uintptr_t addr) {
+    AttachThread();
     if (!addr) return "{}";
     Il2CppObject* go = (Il2CppObject*)addr;
     std::string name = "Unknown";
@@ -496,49 +596,253 @@ static std::string goInfoJson(uintptr_t addr) {
             }
         }
     } catch(...) {}
-    j << "}}";
+    j << "},\"scripts\":[";
+
+    try {
+        Class componentCls("UnityEngine", "Component");
+        Il2CppObject* compReflType = nullptr;
+        if (componentCls.IsValid()) compReflType = (Il2CppObject*)componentCls.GetMonoType();
+        if (!compReflType) compReflType = sysTypeOf("UnityEngine.Component, UnityEngine.CoreModule");
+        if (!compReflType) compReflType = sysTypeOf("UnityEngine.Component");
+        Array<Il2CppObject*>* comps = nullptr;
+        if (!comps && compReflType) {
+            for (auto& mt : goCls.GetMethods(true)) {
+                auto* mi = mt.GetInfo();
+                if (!mi || !mi->name || mi->is_generic) continue;
+                if (strcmp(mi->name, "GetComponents") != 0) continue;
+                if (mi->parameters_count == 1) {
+                    try {
+                        Method<Array<Il2CppObject*>*> m(mt);
+                        comps = m[go](compReflType);
+                    } catch(...) { LOGE("goInfoJson: GetComponents(Type) threw"); }
+                    if (comps && comps->capacity > 0) break;
+                    comps = nullptr;
+                }
+            }
+        }
+        if (!comps && compReflType) {
+            for (auto& mt : goCls.GetMethods(true)) {
+                auto* mi = mt.GetInfo();
+                if (!mi || !mi->name) continue;
+                if (strcmp(mi->name, "GetComponentsInternal") != 0) continue;
+                LOGD("goInfoJson: found GetComponentsInternal with %d params", mi->parameters_count);
+                if (mi->parameters_count >= 2) {
+                    try {
+                        if (mi->parameters_count == 6) {
+                            Method<Array<Il2CppObject*>*> m(mt);
+                            comps = m[go](compReflType, true, false, true, false, nullptr);
+                            LOGD("goInfoJson: GetComponentsInternal(6) returned %p, count=%d", comps, comps ? (int)comps->capacity : -1);
+                        } else if (mi->parameters_count == 5) {
+                            Method<Array<Il2CppObject*>*> m(mt);
+                            comps = m[go](compReflType, true, false, true, false);
+                            LOGD("goInfoJson: GetComponentsInternal(5) returned %p, count=%d", comps, comps ? (int)comps->capacity : -1);
+                        } else if (mi->parameters_count == 4) {
+                            Method<Array<Il2CppObject*>*> m(mt);
+                            comps = m[go](compReflType, false, true, false);
+                            LOGD("goInfoJson: GetComponentsInternal(4) returned %p, count=%d", comps, comps ? (int)comps->capacity : -1);
+                        }
+                    } catch(...) { LOGE("goInfoJson: GetComponentsInternal threw"); }
+                    if (comps && comps->capacity > 0) break;
+                    comps = nullptr;
+                }
+            }
+        }
+        if (!comps) {
+            LOGD("goInfoJson: falling back to FindObjectsOfType");
+            Class monoCls("UnityEngine", "MonoBehaviour");
+            Il2CppObject* monoType = nullptr;
+            if (monoCls.IsValid()) monoType = (Il2CppObject*)monoCls.GetMonoType();
+            if (!monoType) monoType = sysTypeOf("UnityEngine.MonoBehaviour, UnityEngine.CoreModule");
+            if (!monoType) monoType = sysTypeOf("UnityEngine.MonoBehaviour");
+
+            auto fom = findObjsMethod();
+            Method<Il2CppObject*> compGetGO(Class("UnityEngine","Component").GetMethod("get_gameObject"));
+
+            if (fom.IsValid() && monoType && compGetGO.IsValid()) {
+                auto* allMonos = Method<Array<Il2CppObject*>*>(fom)(monoType);
+                LOGD("goInfoJson: FindObjectsOfType(MonoBehaviour) count=%d", allMonos ? (int)allMonos->capacity : -1);
+                if (allMonos && allMonos->capacity > 0) {
+                    for (int i = 0; i < allMonos->capacity; i++) {
+                        Il2CppObject* c = allMonos->m_Items[i];
+                        if (!c) continue;
+                        try {
+                            Il2CppObject* cgo = compGetGO[c]();
+                            if ((uintptr_t)cgo != addr) allMonos->m_Items[i] = nullptr;
+                        } catch(...) { allMonos->m_Items[i] = nullptr; }
+                    }
+                    comps = allMonos;
+                }
+            }
+        }
+
+        LOGD("goInfoJson: final comps=%p, count=%d", comps, comps ? (int)comps->capacity : -1);
+
+        if (comps && comps->capacity > 0) {
+                bool firstScript = true;
+
+                for (int i = 0; i < comps->capacity; i++) {
+                    Il2CppObject* comp = comps->m_Items[i];
+                    if (!comp || !comp->klass) continue;
+
+                    auto* klass = comp->klass;
+                    bool isMono = false;
+                    for (auto* cur = klass; cur; cur = cur->parent) {
+                        if (cur->name && strcmp(cur->name, "MonoBehaviour") == 0) { isMono = true; break; }
+                    }
+                    if (!isMono) continue;
+
+                    std::string compName = klass->name ? klass->name : "Unknown";
+                    std::string compNs = klass->namespaze ? klass->namespaze : "";
+                    char compAddr[32]; snprintf(compAddr, sizeof(compAddr), "%llX", (unsigned long long)(uintptr_t)comp);
+
+                    Method<bool> getEnabled(Class("UnityEngine","Behaviour").GetMethod("get_enabled"));
+                    bool enabled = false;
+                    if (getEnabled.IsValid()) { try { enabled = getEnabled[comp](); } catch(...) {} }
+
+                    if (!firstScript) j << ",";
+                    firstScript = false;
+                    std::string compAsm = (klass->image && klass->image->name) ? klass->image->name : "";
+                    j << "{\"addr\":\"" << compAddr << "\",\"name\":\"" << jsEsc(compName) << "\",\"ns\":\"" << jsEsc(compNs) << "\",\"asm\":\"" << jsEsc(compAsm) << "\",\"enabled\":" << (enabled?"true":"false") << ",\"fields\":[";
+
+                    LOGD("goInfoJson: found script '%s' (ns='%s') at %s", compName.c_str(), compNs.c_str(), compAddr);
+
+                    try {
+                    Class compCls(klass);
+                    bool firstF = true;
+                    std::vector<std::string> seen;
+
+                    for (Class cur = compCls; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
+                        auto* cn_ = cur.GetClass()->name;
+                        if (!cn_) break;
+                        if (strcmp(cn_, "MonoBehaviour") == 0 || strcmp(cn_, "Behaviour") == 0 ||
+                            strcmp(cn_, "Component") == 0 || strcmp(cn_, "Object") == 0) break;
+
+                        for (auto& f : cur.GetFields(false)) {
+                            try {
+                                auto* fi = f.GetInfo();
+                                if (!fi || !fi->type || (fi->type->attrs & 0x10)) continue;
+                                std::string fn = fi->name;
+                                bool dup = false; for (auto& s : seen) if (s==fn) dup=true;
+                                if (dup) continue; seen.push_back(fn);
+                                std::string ft = typeName(fi->type);
+                                LOGD("goInfoJson:   field '%s' type='%s'", fn.c_str(), ft.c_str());
+                                bool ok = false;
+                                std::string vs = readField(ft, cur, comp, fn, nullptr, ok);
+                                LOGD("goInfoJson:   field '%s' read ok=%d val='%s'", fn.c_str(), ok, vs.c_str());
+                                if (ok) {
+                                    if (!firstF) j << ","; firstF = false;
+                                    j << "{\"name\":\"" << jsEsc(fn) << "\",\"type\":\"" << jsEsc(ft) << "\",\"val\":" << vs << ",\"isProp\":false,\"canWrite\":true}";
+                                }
+                            } catch(...) {}
+                        }
+
+                        for (auto& p : cur.GetProperties(false)) {
+                            try {
+                                auto* pi = p._data;
+                                if (!pi || !pi->get) continue;
+                                std::string pn = pi->name;
+                                if (strcmp(pn.c_str(), "enabled") == 0 || strcmp(pn.c_str(), "isActiveAndEnabled") == 0 ||
+                                    strcmp(pn.c_str(), "transform") == 0 || strcmp(pn.c_str(), "gameObject") == 0 ||
+                                    strcmp(pn.c_str(), "tag") == 0 || strcmp(pn.c_str(), "name") == 0 ||
+                                    strcmp(pn.c_str(), "hideFlags") == 0) continue;
+                                bool dup = false; for (auto& s : seen) if (s==pn) dup=true;
+                                if (dup) continue; seen.push_back(pn);
+                                std::string pt = typeName(pi->get->return_type);
+                                bool ok = false;
+                                MethodBase getter(pi->get);
+                                std::string vs = readField(pt, cur, comp, pn, &getter, ok);
+                                if (ok) {
+                                    if (!firstF) j << ","; firstF = false;
+                                    j << "{\"name\":\"" << jsEsc(pn) << "\",\"type\":\"" << jsEsc(pt) << "\",\"val\":" << vs << ",\"isProp\":true,\"canWrite\":" << (pi->set?"true":"false") << "}";
+                                }
+                            } catch(...) {}
+                        }
+                    }
+                    } catch(...) {}
+                    j << "]}";
+                }
+        }
+    } catch(...) {
+        LOGE("goInfoJson: exception in script enumeration");
+    }
+    j << "]}";
+    return j.str();
+}
+
+static void applyLoopEntry(const std::shared_ptr<LoopEntry>& e) {
+    try {
+        uintptr_t addr = (uintptr_t)strtoull(e->addr.c_str(), nullptr, 16);
+        if (!addr) return;
+        for (Class cur(e->ns.c_str(), e->cls.c_str(), Image(e->asm_.c_str())); cur.IsValid(); cur = cur.GetParent()) {
+            if (e->isProp) {
+                auto p = cur.GetProperty(e->name.c_str());
+                if (p.IsValid() && p._data && p._data->set) {
+                    MethodBase s(p._data->set);
+                    writeField(e->ftype, cur, (Il2CppObject*)addr, e->name, &s, e->val);
+                    return;
+                }
+            } else {
+                auto f = cur.GetField(e->name.c_str());
+                if (f.IsValid()) { writeField(e->ftype, cur, (Il2CppObject*)addr, e->name, nullptr, e->val); return; }
+            }
+        }
+    } catch(...) {}
+}
+
+static std::string loopListJson() {
+    std::lock_guard<std::mutex> lk(g_loopMtx);
+    std::ostringstream j;
+    j << "[";
+    bool first = true;
+    for (auto& kv : g_loops) {
+        if (!first) j << ","; first = false;
+        auto& e = kv.second;
+        j << "{\"id\":\"" << jsEsc(kv.first) << "\",\"cls\":\"" << jsEsc(e->cls) << "\",\"name\":\"" << jsEsc(e->name) << "\",\"val\":\"" << jsEsc(e->val) << "\",\"interval\":" << e->intervalMs << ",\"active\":" << (e->active?"true":"false") << "}";
+    }
+    j << "]";
     return j.str();
 }
 
 static void startServer() {
     httplib::Server svr;
 
-    svr.Get("/", [](const httplib::Request&, httplib::Response& res) {
+    svr.Get("/",[](const httplib::Request&, httplib::Response& res) {
         int n = 0;
         for (auto& img : Image::GetImages()) if (img.IsValid()) n++;
         res.set_content(GetExplorerHTML(n), "text/html");
     });
 
-    svr.Get("/api/assemblies", [](const httplib::Request&, httplib::Response& res) {
+    svr.Get("/api/assemblies",[](const httplib::Request&, httplib::Response& res) {
         res.set_content(assembliesJson(), "application/json");
     });
 
-    svr.Get("/api/classes", [](const httplib::Request& req, httplib::Response& res) {
+    svr.Get("/api/classes",[](const httplib::Request& req, httplib::Response& res) {
         res.set_content(classesJson(req.get_param_value("a")), "application/json");
     });
 
-    svr.Get("/api/allclasses", [](const httplib::Request&, httplib::Response& res) {
+    svr.Get("/api/allclasses",[](const httplib::Request&, httplib::Response& res) {
         res.set_content(allClassesJson(), "application/json");
     });
 
-    svr.Get("/api/class", [](const httplib::Request& req, httplib::Response& res) {
+    svr.Get("/api/class",[](const httplib::Request& req, httplib::Response& res) {
         res.set_content(classDetailJson(req.get_param_value("a"), req.get_param_value("ns"), req.get_param_value("n")), "application/json");
     });
 
-    svr.Get("/api/instances", [](const httplib::Request& req, httplib::Response& res) {
+    svr.Get("/api/instances",[](const httplib::Request& req, httplib::Response& res) {
         res.set_content(instancesJson(req.get_param_value("a"), req.get_param_value("ns"), req.get_param_value("n")), "application/json");
     });
 
-    svr.Get("/api/scene", [](const httplib::Request&, httplib::Response& res) {
+    svr.Get("/api/scene",[](const httplib::Request&, httplib::Response& res) {
         res.set_content(sceneJson(), "application/json");
     });
 
-    svr.Get("/api/scene/inspect", [](const httplib::Request& req, httplib::Response& res) {
+    svr.Get("/api/scene/inspect",[](const httplib::Request& req, httplib::Response& res) {
         auto s = req.get_param_value("addr");
         res.set_content(s.empty() ? "{}" : goInfoJson((uintptr_t)strtoull(s.c_str(), nullptr, 16)), "application/json");
     });
 
-    svr.Get("/api/controller/inspect", [](const httplib::Request& req, httplib::Response& res) {
+    svr.Get("/api/controller/inspect",[](const httplib::Request& req, httplib::Response& res) {
+        AttachThread();
         uintptr_t addr = (uintptr_t)strtoull(req.get_param_value("addr").c_str(), nullptr, 16);
         std::string a = req.get_param_value("asm"), ns = req.get_param_value("ns"), cn = req.get_param_value("cls");
 
@@ -609,25 +913,60 @@ static void startServer() {
         res.set_content(j.str(), "application/json");
     });
 
-    svr.Post("/api/scene/update", [](const httplib::Request& req, httplib::Response& res) {
+    svr.Post("/api/scene/update",[](const httplib::Request& req, httplib::Response& res) {
+        AttachThread();
         uintptr_t addr = (uintptr_t)strtoull(jsonVal(req.body, "addr").c_str(), nullptr, 16);
         if (!addr) { res.set_content("{\"ok\":false}", "application/json"); return; }
         std::string type = jsonVal(req.body, "type"), prop = jsonVal(req.body, "prop"), val = jsonVal(req.body, "val");
         try {
             if (type == "gameobject") {
-                if (prop == "active") { Method<void> m(Class("UnityEngine","GameObject").GetMethod("SetActive",1)); if(m.IsValid()) m[(Il2CppObject*)addr](val=="true"); }
-                else if (prop == "name") { Method<void> m(Class("UnityEngine","Object").GetMethod("set_name",1)); if(m.IsValid()) m[(Il2CppObject*)addr](CreateMonoString(val)); }
+                if (prop == "active") {
+                    bool newActive = val == "true";
+                    Il2CppObject* go = (Il2CppObject*)addr;
+                    Method<void> setActive(Class("UnityEngine","GameObject").GetMethod("SetActive", 1));
+                    if (setActive.IsValid()) setActive[go](newActive);
+                } else if (prop == "name") {
+                    Method<void> m(Class("UnityEngine","Object").GetMethod("set_name",1));
+                    if(m.IsValid()) m[(Il2CppObject*)addr](CreateMonoString(val));
+                }
             } else if (type == "transform") {
                 float x=0,y=0,z=0; sscanf(val.c_str(),"[%f,%f,%f]",&x,&y,&z); Vector3 v={x,y,z};
                 if (prop=="p") { Method<void> m(Class("UnityEngine","Transform").GetMethod("set_localPosition",1)); if(m.IsValid()) m[(Il2CppObject*)addr](v); }
                 else if (prop=="r") { Method<void> m(Class("UnityEngine","Transform").GetMethod("set_localEulerAngles",1)); if(m.IsValid()) m[(Il2CppObject*)addr](v); }
                 else if (prop=="s") { Method<void> m(Class("UnityEngine","Transform").GetMethod("set_localScale",1)); if(m.IsValid()) m[(Il2CppObject*)addr](v); }
+            } else if (type == "script") {
+                std::string name = jsonVal(req.body, "prop2");
+                std::string ft   = jsonVal(req.body, "ftype");
+                bool isProp      = jsonVal(req.body, "isProp") == "true";
+                if (prop == "enabled") {
+                    try {
+                        Method<void> setEnabled(Class("UnityEngine","Behaviour").GetMethod("set_enabled", 1));
+                        if (setEnabled.IsValid() && addr) setEnabled[(Il2CppObject*)addr](val == "true");
+                    } catch(...) {}
+                } else {
+                    std::string compNs  = jsonVal(req.body, "compNs");
+                    std::string compCls = jsonVal(req.body, "compCls");
+                    std::string compAsm = jsonVal(req.body, "compAsm");
+                    Il2CppObject* obj = (Il2CppObject*)addr;
+                    Class startCls = (obj && obj->klass) ? Class(obj->klass) :
+                        Class(compNs.c_str(), compCls.c_str(), compAsm.empty() ? Image() : Image(compAsm.c_str()));
+                    for (Class cur = startCls; cur.IsValid(); cur = cur.GetParent()) {
+                        if (isProp) {
+                            auto p = cur.GetProperty(name.c_str());
+                            if (p.IsValid() && p._data && p._data->set) { MethodBase s(p._data->set); writeField(ft, cur, (Il2CppObject*)addr, name, &s, val); break; }
+                        } else {
+                            auto f = cur.GetField(name.c_str());
+                            if (f.IsValid()) { writeField(ft, cur, (Il2CppObject*)addr, name, nullptr, val); break; }
+                        }
+                    }
+                }
             }
         } catch(...) {}
         res.set_content("{\"ok\":true}", "application/json");
     });
 
-    svr.Post("/api/instance/update", [](const httplib::Request& req, httplib::Response& res) {
+    svr.Post("/api/instance/update",[](const httplib::Request& req, httplib::Response& res) {
+        AttachThread();
         uintptr_t addr = (uintptr_t)strtoull(jsonVal(req.body, "addr").c_str(), nullptr, 16);
         std::string a=jsonVal(req.body,"asm"), ns=jsonVal(req.body,"ns"), cn=jsonVal(req.body,"cls");
         std::string name=jsonVal(req.body,"name"), ft=jsonVal(req.body,"ftype"), val=jsonVal(req.body,"val");
@@ -648,7 +987,8 @@ static void startServer() {
         res.set_content("{\"ok\":true}", "application/json");
     });
 
-    svr.Post("/api/scene/delete", [](const httplib::Request& req, httplib::Response& res) {
+    svr.Post("/api/scene/delete",[](const httplib::Request& req, httplib::Response& res) {
+        AttachThread();
         auto s = jsonVal(req.body, "addr");
         if (!s.empty()) {
             uintptr_t addr = (uintptr_t)strtoull(s.c_str(), nullptr, 16);
@@ -659,14 +999,71 @@ static void startServer() {
         res.set_content("{\"ok\":true}", "application/json");
     });
 
-    svr.Post("/api/invoke", [](const httplib::Request& req, httplib::Response& res) {
+    svr.Post("/api/invoke",[](const httplib::Request& req, httplib::Response& res) {
         auto r = invokeMethod(req.body);
         std::ostringstream j;
         j << "{\"ok\":" << (r.ok?"true":"false") << ",\"value\":\"" << jsEsc(r.val) << "\",\"error\":\"" << jsEsc(r.err) << "\"}";
         res.set_content(j.str(), "application/json");
     });
 
-    LOGI("BNM Explorer listening on 0.0.0.0:%d", g_port);
+    svr.Post("/api/loop/add",[](const httplib::Request& req, httplib::Response& res) {
+        auto e = std::make_shared<LoopEntry>();
+        e->addr      = jsonVal(req.body, "addr");
+        e->asm_      = jsonVal(req.body, "asm");
+        e->ns        = jsonVal(req.body, "ns");
+        e->cls       = jsonVal(req.body, "cls");
+        e->name      = jsonVal(req.body, "name");
+        e->ftype     = jsonVal(req.body, "ftype");
+        e->isProp    = jsonVal(req.body, "isProp") == "true";
+        e->val       = jsonVal(req.body, "val");
+        int ms       = 0;
+        try { ms = std::stoi(jsonVal(req.body, "interval")); } catch(...) {}
+        if (ms < 50) ms = 100;
+        e->intervalMs = ms;
+
+        std::string id = e->addr + "_" + e->cls + "_" + e->name;
+        {
+            std::lock_guard<std::mutex> lk(g_loopMtx);
+            auto it = g_loops.find(id);
+            if (it != g_loops.end()) it->second->active = false;
+            g_loops[id] = e;
+        }
+
+        std::thread([e, id]() {
+            AttachThread();
+            while (e->active) {
+                applyLoopEntry(e);
+                std::this_thread::sleep_for(std::chrono::milliseconds(e->intervalMs));
+            }
+            std::lock_guard<std::mutex> lk(g_loopMtx);
+            auto it = g_loops.find(id);
+            if (it != g_loops.end() && it->second == e) g_loops.erase(it);
+        }).detach();
+
+        std::ostringstream j;
+        j << "{\"ok\":true,\"id\":\"" << jsEsc(id) << "\"}";
+        res.set_content(j.str(), "application/json");
+    });
+
+    svr.Post("/api/loop/remove",[](const httplib::Request& req, httplib::Response& res) {
+        std::string id = jsonVal(req.body, "id");
+        std::lock_guard<std::mutex> lk(g_loopMtx);
+        auto it = g_loops.find(id);
+        if (it != g_loops.end()) { it->second->active = false; g_loops.erase(it); }
+        res.set_content("{\"ok\":true}", "application/json");
+    });
+
+    svr.Post("/api/loop/removeall",[](const httplib::Request&, httplib::Response& res) {
+        std::lock_guard<std::mutex> lk(g_loopMtx);
+        for (auto& kv : g_loops) kv.second->active = false;
+        g_loops.clear();
+        res.set_content("{\"ok\":true}", "application/json");
+    });
+
+    svr.Get("/api/loop/list",[](const httplib::Request&, httplib::Response& res) {
+        res.set_content(loopListJson(), "application/json");
+    });
+
     svr.listen("0.0.0.0", g_port);
 }
 
