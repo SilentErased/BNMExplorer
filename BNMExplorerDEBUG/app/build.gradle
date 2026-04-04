@@ -1,15 +1,13 @@
-// yes i was using template because was lazy to setup everything myself
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
 }
-
 android {
-    namespace 'com.pubert.modtemplate'
+    namespace 'com.silenterased.bnmexplorer'
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.pubert.modtemplate"
+        applicationId "com.silenterased.bnmexplorer"
         minSdk 27
         targetSdk 34
         versionCode 1
