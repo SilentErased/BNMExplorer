@@ -1,3 +1,4 @@
+const int METADATA_VERSION = 24;
 typedef struct Il2CppClass Il2CppClass;
 typedef struct Il2CppType Il2CppType;
 typedef struct EventInfo EventInfo;
@@ -651,7 +652,8 @@ typedef enum Il2CppCallConvention
 typedef enum Il2CppCharSet
 {
     CHARSET_ANSI,
-    CHARSET_UNICODE
+    CHARSET_UNICODE,
+    CHARSET_NOT_SPECIFIED
 } Il2CppCharSet;
 typedef struct Il2CppClass Il2CppClass;
 typedef struct Il2CppGuid Il2CppGuid;
@@ -757,6 +759,7 @@ typedef struct Il2CppDefaults
     MethodInfo *threadpool_perform_wait_callback_method;
     Il2CppClass *mono_method_message_class;
     Il2CppClass* ireference_class;
+    Il2CppClass* ireferencearray_class;
     Il2CppClass* ikey_value_pair_class;
     Il2CppClass* key_value_pair_class;
     Il2CppClass* windows_foundation_uri_class;

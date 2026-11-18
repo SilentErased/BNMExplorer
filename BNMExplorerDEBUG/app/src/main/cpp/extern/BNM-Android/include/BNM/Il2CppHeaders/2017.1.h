@@ -1,3 +1,4 @@
+const int METADATA_VERSION = 24;
 typedef uint32_t Il2CppMethodSlot;
 const int ipv6AddressSize = 16;
 typedef int32_t il2cpp_hresult_t;
@@ -1380,7 +1381,6 @@ typedef struct Il2CppReflectionPointer
 typedef struct Il2CppIntPtr
 {
     void* m_value;
-    static Il2CppIntPtr Zero;
 } Il2CppIntPtr;
 typedef struct Il2CppInternalThread
 {
@@ -2003,7 +2003,7 @@ typedef enum Il2CppVarType
     IL2CPP_VT_ILLEGALMASKED = 0xfff,
     IL2CPP_VT_TYPEMASK = 0xfff,
 } Il2CppVarType;
-typedef struct Il2CppVariant
+struct Il2CppVariant
 {
     union
     {
@@ -2102,55 +2102,44 @@ typedef struct Il2CppHStringHeader
 } Il2CppHStringHeader;
 typedef struct Il2CppIUnknown
 {
-    static const Il2CppGuid IID;
 } Il2CppIUnknown;
 typedef struct Il2CppISequentialStream
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppISequentialStream;
 typedef struct Il2CppIStream
 {
  Il2CppISequentialStream ISequentialStream;
-    static const Il2CppGuid IID;
 } Il2CppIStream;
 typedef struct Il2CppIMarshal
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIMarshal;
 typedef struct Il2CppIManagedObject
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIManagedObject;
 typedef struct Il2CppIManagedObjectHolder
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIManagedObjectHolder;
 typedef struct Il2CppIInspectable
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIInspectable;
 typedef struct Il2CppIActivationFactory
 {
  Il2CppIInspectable IInspectable;
-    static const Il2CppGuid IID;
 } Il2CppIActivationFactory;
 typedef struct Il2CppIRestrictedErrorInfo
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIRestrictedErrorInfo;
 typedef struct Il2CppILanguageExceptionErrorInfo
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppILanguageExceptionErrorInfo;
 typedef struct Il2CppIAgileObject
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIAgileObject;

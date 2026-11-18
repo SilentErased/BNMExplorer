@@ -4,12 +4,11 @@
 
 #include <Internals.hpp>
 
-#define BNM_CLASS_ALLOCATED_METHODS_FLAG 0x01000000
-#define BNM_CLASS_ALLOCATED_FIELDS_FLAG 0x02000000
-#define BNM_CLASS_ALLOCATED_INNER_FLAG 0x04000000
-#define BNM_CLASS_ALLOCATED_HIERARCHY_FLAG 0x08000000
-
 using namespace BNM;
+
+// Allocation tracking uses Internal::bnmAllocatedClasses / bnmAllocatedInnerLists instead of
+// custom bits in klass->flags (those bits belong to the runtime; writing them risks false
+// positives when il2cpp re-initializes a class).
 
 void MANAGEMENT_STRUCTURES::AddClass(CustomClass *_class) {
     if (!Internal::ClassesManagement::classesManagementVector)
@@ -89,6 +88,7 @@ static void ModifyClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, Class t
     BNM_LOG_DEBUG(DBG_BNM_MSG_ClassesManagement_ModifyClasses_Target, target.str().data());
 
     auto klass = target._data;
+    if (!klass) [[unlikely]] return;
 
     auto baseType = customClass->_baseType.ToClass();
 
@@ -103,6 +103,13 @@ static void ModifyClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, Class t
     if (newMethodsCount) {
         auto oldCount = klass->method_count;
         auto oldMethods = klass->methods;
+
+        // A class that failed to init keeps sentinel counts ((uint16_t)-1) and a null methods
+        // array; treating that as a real count would trigger a massive over-read on memcpy below.
+        if (oldCount == (uint16_t) -1 || !oldMethods) {
+            oldCount = 0;
+            oldMethods = nullptr;
+        }
 
         std::vector<IL2CPP::MethodInfo *> methodsToAdd{};
 
@@ -131,8 +138,8 @@ static void ModifyClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, Class t
 
             memcpy(newMethods + oldCount, methodsToAdd.data(), methodsToAdd.size() * sizeof(IL2CPP::MethodInfo *));
 
-            if ((klass->flags & BNM_CLASS_ALLOCATED_METHODS_FLAG) == BNM_CLASS_ALLOCATED_METHODS_FLAG) BNM_free(klass->methods);
-            klass->flags |= BNM_CLASS_ALLOCATED_METHODS_FLAG;
+            if (Internal::bnmAllocatedClasses.contains(klass)) BNM_free(klass->methods);
+            Internal::bnmAllocatedClasses.insert(klass);
 
             klass->methods = (const IL2CPP::MethodInfo **)newMethods;
             klass->method_count += methodsToAdd.size();
@@ -164,11 +171,12 @@ static void ModifyClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, Class t
             BNM_LOG_DEBUG(DBG_BNM_MSG_ClassesManagement_ModifyClasses_Added_Field, field->_name.data());
         }
 
-        if ((klass->flags & BNM_CLASS_ALLOCATED_FIELDS_FLAG) == BNM_CLASS_ALLOCATED_FIELDS_FLAG) BNM_free(klass->fields);
-        klass->flags |= BNM_CLASS_ALLOCATED_FIELDS_FLAG;
+        if (Internal::bnmAllocatedClasses.contains(klass)) BNM_free(klass->fields);
+        Internal::bnmAllocatedClasses.insert(klass);
 
         klass->actualSize = currentAddress;
-        klass->fields = newField;
+        klass->fields = newFields;
+        klass->field_count += newFieldsCount;
     }
 
     customClass->myClass = klass;
@@ -180,8 +188,8 @@ static const char *baseImageName = BNM_OBFUSCATE("Assembly-CSharp.dll");
 static void CreateClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, const CustomClassInfo &classInfo) {
     Image image{};
     if (classInfo._imageName) {
-        auto &assemblies = *Internal::il2cppMethods.Assembly$$GetAllAssemblies();
-        for (auto assembly: assemblies) {
+        auto &assemblies = Internal::GetAllAssemblies();
+        if (Internal::il2cppMethods.il2cpp_assembly_get_image) for (auto assembly: assemblies) {
             auto currentImage = Internal::il2cppMethods.il2cpp_assembly_get_image(assembly);
             if (!Internal::CompareImageName(currentImage, classInfo._imageName)) continue;
             image = currentImage;
@@ -198,10 +206,22 @@ static void CreateClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, const C
     IL2CPP::Il2CppClass *owner = customClass->_owner;
 
 
+#if UNITY_VER >= 606
+    // 6000.6+: Il2CppRuntimeInterfaceOffsetPair is gone; carry (interfaceType, offset) pairs
+    // and materialize them as Il2CppRuntimeInterfaceData when installing into the class.
+    std::vector<std::pair<IL2CPP::Il2CppClass *, int32_t>> newInterOffsets{};
+    std::vector<int32_t> newInterDepths{}; // depth = hops from owning class; entries inherited from the parent carry 1 + parent depth, entries added directly here carry 0 (runtime hot dispatch reads only interfaceType + offset)
+    if (parent->interfaces)
+        for (uint16_t i = 0; i < parent->interfaces_count; ++i) {
+            newInterOffsets.emplace_back(parent->interfaces[i].interfaceType, parent->interfaces[i].offset);
+            newInterDepths.push_back(1 + parent->interfaces[i].depth);
+        }
+#else
     std::vector<IL2CPP::Il2CppRuntimeInterfaceOffsetPair> newInterOffsets{};
     if (parent->interfaceOffsets)
         for (uint16_t i = 0; i < parent->interface_offsets_count; ++i)
             newInterOffsets.push_back(parent->interfaceOffsets[i]);
+#endif
 
     auto allInterfaces = customClass->_interfaces;
     std::vector<IL2CPP::Il2CppClass *> interfaces{};
@@ -215,6 +235,9 @@ static void CreateClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, const C
     for (uint16_t i = 0; i < parent->vtable_count; ++i) newVTable[i] = parent->vtable[i];
     for (auto interface : interfaces) {
         newInterOffsets.push_back({interface, newVtableSize});
+#if UNITY_VER >= 606
+        newInterDepths.push_back(0); // Directly declared on the custom class
+#endif
         for (uint16_t i = 0; i < interface->method_count; ++i) {
             auto v = interface->methods[i];
             ++newVtableSize;
@@ -237,6 +260,7 @@ static void CreateClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, const C
         // Replacing non-static methods in the virtual methods table
         if (!method->_isStatic) for (uint16_t v = 0; v < newVtableSize; ++v) {
             auto &vTable = newVTable[v];
+            if (!vTable.method) continue; // vtable slot may be empty
             auto count = vTable.method->parameters_count;
 
             if (!strcmp(vTable.method->name, method->myInfo->name) && count == method->myInfo->parameters_count && method->_parameterTypes.size() == count) {
@@ -330,11 +354,21 @@ static void CreateClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, const C
     // Add Interfaces
     if (!interfaces.empty()) {
         klass->interfaces_count = interfaces.size();
+#if UNITY_VER >= 606
+        // In 6000.6+, interfaces are (re)materialized from newInterOffsets below — skip the
+        // phase-1 allocation entirely to avoid a leak from the always-overwritten allocation.
+        klass->interfaces = nullptr;
+#else
         klass->implementedInterfaces = (IL2CPP::Il2CppClass **) BNM_malloc(interfaces.size() * sizeof(IL2CPP::Il2CppClass *));
         memcpy(klass->implementedInterfaces, interfaces.data(), interfaces.size() * sizeof(IL2CPP::Il2CppClass *));
+#endif
     } else {
         klass->interfaces_count = 0;
+#if UNITY_VER >= 606
+        klass->interfaces = nullptr;
+#else
         klass->implementedInterfaces = nullptr;
+#endif
     }
 
     // Completing the creation of methods
@@ -357,15 +391,33 @@ static void CreateClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, const C
     for (size_t i = 0; i < newVTable.size(); ++i) klass->vtable[i] = newVTable[i];
 
     // Set interface addresses
+#if UNITY_VER >= 606
+    klass->interfaces_count = newInterOffsets.size();
+    // In 6000.6+, interface offsets live inside Il2CppRuntimeInterfaceData (interfaces).
+    if (!newInterOffsets.empty()) {
+        auto *merged = (IL2CPP::Il2CppRuntimeInterfaceData *) BNM_malloc(newInterOffsets.size() * sizeof(IL2CPP::Il2CppRuntimeInterfaceData));
+        for (size_t i = 0; i < newInterOffsets.size(); ++i) {
+            merged[i].interfaceType = newInterOffsets[i].first;
+            merged[i].offset = newInterOffsets[i].second;
+            merged[i].depth = newInterDepths[i];
+        }
+        klass->interfaces = merged;
+    }
+#else
     klass->interface_offsets_count = newInterOffsets.size();
     klass->interfaceOffsets = (IL2CPP::Il2CppRuntimeInterfaceOffsetPair *) BNM_malloc(newInterOffsets.size() * sizeof(IL2CPP::Il2CppRuntimeInterfaceOffsetPair));
     memcpy(klass->interfaceOffsets, newInterOffsets.data(), newInterOffsets.size() * sizeof(IL2CPP::Il2CppRuntimeInterfaceOffsetPair));
+#endif
 
     klass->interopData = nullptr;
     klass->events = nullptr; // Creation is not supported
     klass->properties = nullptr; // Creation is not supported
     klass->nestedTypes = nullptr;
+#if UNITY_VER >= 600
+    klass->init_data.rgctx_data = nullptr; // Required for generic
+#else
     klass->rgctx_data = nullptr; // Required for generic
+#endif
 
     klass->static_fields = nullptr; // Creation is not supported
     klass->static_fields_size = 0;
@@ -444,7 +496,7 @@ static void CreateClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, const C
     klass->gc_desc = nullptr;
 
     // Use Class::Init, to setup GC desc
-    Internal::il2cppMethods.Class$$Init(klass);
+    if (Internal::il2cppMethods.Class$$Init) Internal::il2cppMethods.Class$$Init(klass);
 
     // Add a class to the list of created classes
     Internal::ClassesManagement::bnmClassesMap.AddClass(image.GetInfo(), klass);
@@ -522,14 +574,16 @@ static IL2CPP::Il2CppImage *MakeImage(std::string_view imageName) {
     auto nameEnd = ((char *)(newImg->name + nameLen));
     nameEnd[0] = '.'; nameEnd[1] = 'd'; nameEnd[2] = 'l'; nameEnd[3] = 'l'; nameEnd[4] = 0;
 
-#if UNITY_VER > 182
+#if UNITY_VER > 174
     newImg->assembly = nullptr;
-    newImg->customAttributeCount = 0;
+#endif
 
-#   if UNITY_VER < 201
+    // customAttributeCount / customAttributeStart only exist in Il2CppImage since Unity 2018.4 (dropped in 2020.2)
+#if UNITY_VER >= 183
+    newImg->customAttributeCount = 0;
+#   if UNITY_VER < 202
     newImg->customAttributeStart = -1;
 #   endif
-
 #endif
 
 #if UNITY_VER > 201
@@ -595,7 +649,13 @@ static IL2CPP::Il2CppImage *MakeImage(std::string_view imageName) {
     newImg->nameToClassHashTable = (decltype(newImg->nameToClassHashTable)) -0x424e4d;
 
     // Add an assembly to the list
-    Internal::il2cppMethods.Assembly$$GetAllAssemblies()->push_back(newAsm);
+    Internal::GetAllAssemblies().push_back(newAsm);
+    if (Internal::il2cppMethods.Assembly$$GetAllAssemblies) {
+        auto origVec = Internal::il2cppMethods.Assembly$$GetAllAssemblies();
+        if (origVec && origVec != &Internal::GetAllAssemblies()) {
+            origVec->push_back(newAsm);
+        }
+    }
 
     BNM_LOG_INFO(DBG_BNM_MSG_ClassesManagement_MakeImage_Added_Image, imageName.data());
 
@@ -715,6 +775,7 @@ static IL2CPP::MethodInfo *ProcessCustomMethod(MANAGEMENT_STRUCTURES::CustomMeth
 
 static IL2CPP::MethodInfo *CreateMethod(MANAGEMENT_STRUCTURES::CustomMethod *method) {
     auto *myInfo = BNM_I2C_NEW(MethodInfo);
+    memset(myInfo, 0, sizeof(IL2CPP::MethodInfo)); // Zero-init: newer Unity adds bitfields (e.g. is_unmanaged_callers_only) sharing bytes with fields we set
     myInfo->methodPointer = (decltype(myInfo->methodPointer)) method->_address;
     myInfo->invoker_method = (decltype(myInfo->invoker_method)) method->_invoker;
     myInfo->parameters_count = method->_parameterTypes.size();
@@ -786,7 +847,7 @@ static IL2CPP::MethodInfo *CreateMethod(MANAGEMENT_STRUCTURES::CustomMethod *met
         }
 #endif
     }
-    myInfo->rgctx_data = nullptr;
+    myInfo->rgctx_data = nullptr; // Required for generic
     myInfo->genericMethod = nullptr;
 
     method->_parameterTypes.clear();
@@ -816,44 +877,53 @@ static void SetupClassOwner(IL2CPP::Il2CppClass *target, IL2CPP::Il2CppClass *ow
     if (!owner) return;
 
     auto oldOwner = target->declaringType;
-    auto oldInnerList = owner->nestedTypes;
+    // 6000.5+: nestedTypes is const void*; older versions: Il2CppClass**
+    auto oldInnerList = (IL2CPP::Il2CppClass **) owner->nestedTypes;
 
     target->declaringType = owner;
 
     // Add a class to the new owner's list
-    auto newInnerList = (IL2CPP::Il2CppClass **) BNM_malloc(sizeof(IL2CPP::Il2CppClass) * (owner->nested_type_count + 1));
-    memcpy(newInnerList, owner->nestedTypes, sizeof(IL2CPP::Il2CppClass) * owner->nested_type_count);
+    auto newInnerList = (IL2CPP::Il2CppClass **) BNM_malloc(sizeof(IL2CPP::Il2CppClass *) * (owner->nested_type_count + 1));
+    memcpy(newInnerList, oldInnerList, sizeof(IL2CPP::Il2CppClass *) * owner->nested_type_count);
     newInnerList[owner->nested_type_count++] = target;
+#if UNITY_VER >= 605
+    owner->nestedTypes = (const void *) newInnerList;
+#else
     owner->nestedTypes = newInnerList;
+#endif
 
     // Mark the class to use less memory
-    if ((owner->flags & BNM_CLASS_ALLOCATED_INNER_FLAG) == BNM_CLASS_ALLOCATED_INNER_FLAG) BNM_free(oldInnerList);
-    owner->flags |= BNM_CLASS_ALLOCATED_INNER_FLAG;
+    if (Internal::bnmAllocatedInnerLists.contains(oldInnerList)) BNM_free(oldInnerList);
+    Internal::bnmAllocatedInnerLists.insert(newInnerList);
 
     // Remove a class from the old owner's list
     if (oldOwner) {
-        oldInnerList = oldOwner->nestedTypes;
-        newInnerList = (IL2CPP::Il2CppClass **) BNM_malloc(sizeof(IL2CPP::Il2CppClass) * (oldOwner->nested_type_count - 1));
+        oldInnerList = (IL2CPP::Il2CppClass **) oldOwner->nestedTypes;
+        newInnerList = (IL2CPP::Il2CppClass **) BNM_malloc(sizeof(IL2CPP::Il2CppClass *) * (oldOwner->nested_type_count - 1));
         uint8_t skipped = 0;
         for (uint16_t i = 0; i < oldOwner->nested_type_count; ++i) {
             if (skipped == 0) if (skipped = (oldInnerList[i] == target); skipped) continue;
             newInnerList[i - skipped] = oldInnerList[i];
         }
+#if UNITY_VER >= 605
+        oldOwner->nestedTypes = (const void *) newInnerList;
+#else
         oldOwner->nestedTypes = newInnerList;
+#endif
         --oldOwner->nested_type_count;
 
         // Mark the class to use less memory
-        if ((oldOwner->flags & BNM_CLASS_ALLOCATED_INNER_FLAG) == BNM_CLASS_ALLOCATED_INNER_FLAG) BNM_free(oldInnerList);
-        oldOwner->flags |= BNM_CLASS_ALLOCATED_INNER_FLAG;
+        if (Internal::bnmAllocatedInnerLists.contains(oldInnerList)) BNM_free(oldInnerList);
+        Internal::bnmAllocatedInnerLists.insert(newInnerList);
     }
 }
 
 static void SetupClassParent(IL2CPP::Il2CppClass *target, IL2CPP::Il2CppClass *parent) {
     // All C# classes should have parent. Only structs don't have it, but BNM don't allow to define valid structs
-    if (!parent) [[unlikely]] return;
+    if (!target || !parent) [[unlikely]] return;
 
-    if ((target->flags & BNM_CLASS_ALLOCATED_HIERARCHY_FLAG) == BNM_CLASS_ALLOCATED_HIERARCHY_FLAG) BNM_free(target->typeHierarchy);
-    target->flags |= BNM_CLASS_ALLOCATED_HIERARCHY_FLAG;
+    if (Internal::bnmAllocatedClasses.contains(target)) BNM_free(target->typeHierarchy);
+    Internal::bnmAllocatedClasses.insert(target);
 
     target->typeHierarchyDepth = parent->typeHierarchyDepth + 1;
     target->typeHierarchy = (IL2CPP::Il2CppClass **) BNM_malloc(target->typeHierarchyDepth * sizeof(IL2CPP::Il2CppClass *));
@@ -863,16 +933,25 @@ static void SetupClassParent(IL2CPP::Il2CppClass *target, IL2CPP::Il2CppClass *p
 }
 
 static void GetAllInterfaces(IL2CPP::Il2CppClass *parent, IL2CPP::Il2CppClass *interface, std::vector<IL2CPP::Il2CppClass *> &outInterfaces) { // NOLINT
-    Internal::il2cppMethods.Class$$Init(interface);
+    if (Internal::il2cppMethods.Class$$Init) Internal::il2cppMethods.Class$$Init(interface);
     if (!HasInterface(parent, interface)) outInterfaces.push_back(interface);
     if (!interface->interfaces_count || interface->interfaces_count == (uint16_t) -1) return;
 
+#if UNITY_VER >= 606
+    for (uint16_t i = 0; i < interface->interfaces_count; ++i) GetAllInterfaces(parent, interface->interfaces[i].interfaceType, outInterfaces);
+#else
     for (uint16_t i = 0; i < interface->interfaces_count; ++i) GetAllInterfaces(parent, interface->implementedInterfaces[i], outInterfaces);
+#endif
 }
 
 static bool HasInterface(IL2CPP::Il2CppClass *parent, IL2CPP::Il2CppClass *interface) { // NOLINT
     if (!parent || !interface) return false;
+    if (parent->interfaces_count == (uint16_t) -1) return false;
+#if UNITY_VER >= 606
+    for (uint16_t i = 0; i < parent->interfaces_count; ++i) if (parent->interfaces[i].interfaceType == interface) return true;
+#else
     for (uint16_t i = 0; i < parent->interfaces_count; ++i) if (parent->implementedInterfaces[i] == interface) return true;
+#endif
     if (parent->parent) return HasInterface(parent->parent, interface);
     return false;
 }

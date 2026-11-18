@@ -5,7 +5,7 @@ BNM::Exception BNM::TryInvoke(const std::function<void()> &func) {
     BNM::IL2CPP::Il2CppType type;
     type.type = BNM::IL2CPP::IL2CPP_TYPE_VOID;
     BNM::IL2CPP::Il2CppClass klass;
-#if UNITY_VER <= 204
+#if UNITY_VER < 211
     klass.valuetype = 0;
 #endif
     BNM::IL2CPP::MethodInfo info;
@@ -20,6 +20,7 @@ BNM::Exception BNM::TryInvoke(const std::function<void()> &func) {
     info.invoker_method = (BNM::IL2CPP::InvokerMethod) +[](std::function<void()> *func) -> void { (*func)(); };
 #endif
     BNM::IL2CPP::Il2CppException *exception = nullptr;
+    if (!Internal::il2cppMethods.il2cpp_runtime_invoke) return nullptr;
     Internal::il2cppMethods.il2cpp_runtime_invoke(&info, nullptr, nullptr, &exception);
     return exception;
 }

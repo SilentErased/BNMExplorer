@@ -1,3 +1,4 @@
+const int METADATA_VERSION = 27;
 typedef struct Il2CppClass Il2CppClass;
 typedef struct Il2CppType Il2CppType;
 typedef struct EventInfo EventInfo;
@@ -1256,7 +1257,6 @@ typedef struct MethodInfo
     {
         const Il2CppGenericMethod* genericMethod;
         Il2CppMetadataGenericContainerHandle genericContainerHandle;
-        Il2CppMethodPointer nativeFunction;
     };
     uint32_t token;
     uint16_t flags;

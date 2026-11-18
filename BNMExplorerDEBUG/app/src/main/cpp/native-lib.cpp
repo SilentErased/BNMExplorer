@@ -10,6 +10,11 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <dlfcn.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <algorithm>
+#include <initializer_list>
 #include <android/log.h>
 #include "Include/BNMResolve.hpp"
 #include "extern/BNM-Android/src/private/Internals.hpp"
@@ -24,17 +29,52 @@ using namespace BNM;
 using namespace BNM::IL2CPP;
 using namespace BNM::Structures::Unity;
 
+struct vector3_int { int32_t x; int32_t y; int32_t z; };
+struct vector2_int { int32_t x; int32_t y; };
+
 static int g_port = 8080;
 
-static double nowSeconds() {
+static double now_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-static void AttachThread() {
+static void attach_thread() {
     BNM::AttachIl2Cpp();
 }
 
-static std::string jsEsc(const char* s) {
+static inline bool is_valid_pointer(const void* ptr) {
+    uintptr_t p = (uintptr_t)ptr;
+    if (p < 0x10000) return false;
+    if (sizeof(void*) == 8) return (p & 0x00FFFFFFFFFFFFFFULL) < 0x0001000000000000ULL;
+    return true;
+}
+
+static int g_probe_fds[2] = {-1, -1};
+static std::mutex g_probe_mtx;
+
+static bool is_readable(const void* ptr, size_t size) {
+    if (!is_valid_pointer(ptr) || size == 0 || size > 4096) return false;
+    std::lock_guard<std::mutex> lk(g_probe_mtx);
+    if (g_probe_fds[0] < 0) {
+        if (pipe2(g_probe_fds, O_CLOEXEC | O_NONBLOCK) != 0) {
+            g_probe_fds[0] = -1;
+            g_probe_fds[1] = -1;
+            return true;
+        }
+    }
+    ssize_t w = write(g_probe_fds[1], ptr, size);
+    if (w < 0) return false;
+    char sink[256];
+    ssize_t left = w;
+    while (left > 0) {
+        ssize_t r = read(g_probe_fds[0], sink, std::min<size_t>(sizeof(sink), (size_t)left));
+        if (r <= 0) break;
+        left -= r;
+    }
+    return (size_t)w == size;
+}
+
+static std::string js_esc(const char* s) {
     if (!s) return "";
     std::string o;
     for (const char* p = s; *p; ++p) {
@@ -50,112 +90,159 @@ static std::string jsEsc(const char* s) {
     return o;
 }
 
-static std::string jsEsc(const std::string& s) { return jsEsc(s.c_str()); }
+static std::string js_esc(const std::string& s) { return js_esc(s.c_str()); }
 
-static std::string typeName(const Il2CppType* t) {
-    if (!t) return "?";
-    Class c(t);
-    if (!c.IsValid()) return "?";
-    auto* r = c.GetClass();
-    if (!r || !r->name) return "?";
-    std::string n = r->name;
-    if (r->namespaze && strlen(r->namespaze) > 0)
-        n = std::string(r->namespaze) + "." + n;
-    return n;
+static std::string type_name(const Il2CppType* t) {
+    if (!t || !is_valid_pointer(t)) return "?";
+    try {
+        Class c(t);
+        if (!c.IsValid()) return "?";
+        auto* r = c.GetClass();
+        if (!r || !is_valid_pointer(r) || !is_valid_pointer(r->name)) return "?";
+        std::string n = r->name;
+        if (r->namespaze && is_valid_pointer(r->namespaze) && r->namespaze[0] != '\0')
+            n = std::string(r->namespaze) + "." + n;
+        return n;
+    } catch (...) { return "?"; }
 }
 
-struct LoopEntry {
+typedef const Il2CppType* (*Il2CppMethodGetParamFn)(const MethodInfo*, uint32_t);
+static Il2CppMethodGetParamFn g_il2cpp_method_get_param = nullptr;
+static bool g_il2cpp_method_get_param_searched = false;
+
+static const Il2CppType* get_param_type(const MethodInfo* mi, int i) {
+    if (!mi || !is_valid_pointer(mi) || i < 0 || i >= (int)mi->parameters_count) return nullptr;
+    if (mi->parameters && is_valid_pointer(mi->parameters)) {
+#if UNITY_VER < 212
+        auto* pinfo = (const ParameterInfo*)mi->parameters;
+        const Il2CppType* t = (pinfo + i)->parameter_type;
+#else
+        auto** ptypes = (const Il2CppType**)mi->parameters;
+        const Il2CppType* t = ptypes[i];
+#endif
+        if (is_valid_pointer(t)) return t;
+    }
+    if (!g_il2cpp_method_get_param_searched) {
+        g_il2cpp_method_get_param_searched = true;
+        g_il2cpp_method_get_param = (Il2CppMethodGetParamFn)dlsym(RTLD_DEFAULT, "il2cpp_method_get_param");
+    }
+    if (g_il2cpp_method_get_param) {
+        const Il2CppType* t = g_il2cpp_method_get_param(mi, (uint32_t)i);
+        if (is_valid_pointer(t)) return t;
+    }
+    return nullptr;
+}
+
+static std::string get_param_type_name(const MethodInfo* mi, int i) {
+    const Il2CppType* t = get_param_type(mi, i);
+    if (!t) return "?";
+    return type_name(t);
+}
+
+static std::string get_param_name(const MethodInfo* mi, int i) {
+    if (!mi || !is_valid_pointer(mi)) return "arg" + std::to_string(i);
+    try {
+        if (BNM::Internal::il2cppMethods.il2cpp_method_get_param_name) {
+            const char* n = BNM::Internal::il2cppMethods.il2cpp_method_get_param_name(mi, (uint32_t)i);
+            if (n && is_valid_pointer(n) && n[0] != '\0') return n;
+        }
+    } catch(...) {}
+    return "arg" + std::to_string(i);
+}
+
+struct loop_entry {
     std::string addr;
     std::string asm_;
     std::string ns;
     std::string cls;
     std::string name;
     std::string ftype;
-    bool isProp;
+    bool is_prop;
     std::string val;
-    int intervalMs;
+    int interval_ms;
     std::atomic<bool> active{true};
 };
 
-static std::mutex g_loopMtx;
-static std::map<std::string, std::shared_ptr<LoopEntry>> g_loops;
+static std::mutex g_loop_mtx;
+static std::map<std::string, std::shared_ptr<loop_entry>> g_loops;
 
-struct LogEntry {
+struct log_entry {
     std::string msg;
     int level;
     double timestamp;
 };
-static std::mutex g_logMtx;
-static std::vector<LogEntry> g_logBuffer;
-static const size_t LOG_MAX = 500;
-static std::atomic<bool> g_logHooked{false};
+static std::mutex g_log_mtx;
+static std::vector<log_entry> g_log_buffer;
+static const size_t g_log_max = 500;
+static std::atomic<bool> g_log_hooked{false};
 
-static void addLogEntry(const std::string& msg, int level) {
-    std::lock_guard<std::mutex> lk(g_logMtx);
-    if (g_logBuffer.size() >= LOG_MAX) g_logBuffer.erase(g_logBuffer.begin());
-    g_logBuffer.push_back({msg, level, nowSeconds()});
+static void add_log_entry(const std::string& msg, int level) {
+    std::lock_guard<std::mutex> lk(g_log_mtx);
+    if (g_log_buffer.size() >= g_log_max) g_log_buffer.erase(g_log_buffer.begin());
+    g_log_buffer.push_back({msg, level, now_seconds()});
 }
 
-static void hookDebugLog() {
-    if (g_logHooked.exchange(true)) return;
+static void hook_debug_log() {
+    if (g_log_hooked.exchange(true)) return;
     try {
-        Class debugCls("UnityEngine", "Debug");
-        if (!debugCls.IsValid()) return;
+        Class debug_cls("UnityEngine", "Debug");
+        if (!debug_cls.IsValid()) return;
     } catch(...) {}
 }
 
-struct CatcherArg {
+struct catcher_arg {
     std::string type;
     std::string val;
 };
 
-struct CatcherCall {
+struct catcher_call {
     double ts;
     std::string instance;
-    std::vector<CatcherArg> args;
+    std::vector<catcher_arg> args;
     std::string ret;
 };
 
-struct CatcherEntry {
+struct catcher_entry {
     std::string id;
     std::string asm_;
     std::string ns;
     std::string cls;
     std::string method;
-    std::string retType;
-    std::vector<std::string> paramTypes;
-    std::vector<std::string> paramNames;
+    std::string ret_type;
+    std::vector<std::string> param_types;
+    std::vector<std::string> param_names;
     std::atomic<bool> active{true};
-    std::mutex callsMtx;
-    std::vector<CatcherCall> calls;
-    void* origPtr = nullptr;
-    int slotIdx = -1;
-    static const size_t MAX_CALLS = 100;
+    std::mutex calls_mtx;
+    std::vector<catcher_call> calls;
+    void* orig_ptr = nullptr;
+    int slot_idx = -1;
+    static const size_t max_calls = 100;
 };
 
-static std::mutex g_catcherMtx;
-static std::map<std::string, std::shared_ptr<CatcherEntry>> g_catchers;
+static std::mutex g_catcher_mtx;
+static std::map<std::string, std::shared_ptr<catcher_entry>> g_catchers;
 
-static std::string logsJson() {
-    std::lock_guard<std::mutex> lk(g_logMtx);
+static std::string logs_json() {
+    std::lock_guard<std::mutex> lk(g_log_mtx);
     std::ostringstream j;
     j << "[";
     bool first = true;
-    for (auto& e : g_logBuffer) {
+    for (auto& e : g_log_buffer) {
         if (!first) j << ","; first = false;
-        j << "{\"msg\":\"" << jsEsc(e.msg) << "\",\"level\":" << e.level << ",\"t\":" << std::fixed << e.timestamp << "}";
+        j << "{\"msg\":\"" << js_esc(e.msg) << "\",\"level\":" << e.level << ",\"t\":" << std::fixed << e.timestamp << "}";
     }
     j << "]";
     return j.str();
 }
 
-static std::string jsonVal(const std::string& json, const std::string& key) {
+static std::string json_val(const std::string& json, const std::string& key) {
     std::string qk = "\"" + key + "\":";
     auto pos = json.find(qk);
     if (pos == std::string::npos) return "";
     pos += qk.length();
-    while (pos < json.length() && (json[pos] == ' ' || json[pos] == '\t')) pos++;
-    if (pos < json.length() && json[pos] == '"') {
+    while (pos < json.length() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == '\r' || json[pos] == '\n')) pos++;
+    if (pos >= json.length()) return "";
+    if (json[pos] == '"') {
         pos++;
         size_t end = pos;
         bool esc = false;
@@ -170,181 +257,671 @@ static std::string jsonVal(const std::string& json, const std::string& key) {
         std::string out;
         for (size_t i = 0; i < raw.length(); i++) {
             if (raw[i] == '\\' && i + 1 < raw.length()) {
-                char n = raw[i+1];
+                char n = raw[i + 1];
                 if      (n == '"')  { out += '"';  i++; }
                 else if (n == '\\') { out += '\\'; i++; }
                 else if (n == 'n')  { out += '\n'; i++; }
                 else if (n == 'r')  { out += '\r'; i++; }
+                else if (n == 't')  { out += '\t'; i++; }
                 else out += raw[i];
             } else out += raw[i];
         }
         return out;
     }
-    auto end = json.find_first_of(",}", pos);
-    if (end == std::string::npos) return "";
+    if (json[pos] == '[' || json[pos] == '{') {
+        char open_ch = json[pos];
+        char close_ch = (open_ch == '[') ? ']' : '}';
+        int depth = 0;
+        size_t end = pos;
+        bool in_q = false, esc = false;
+        while (end < json.length()) {
+            char c = json[end];
+            if (c == '"' && !esc) in_q = !in_q;
+            else if (!in_q) {
+                if (c == open_ch) depth++;
+                else if (c == close_ch) {
+                    depth--;
+                    if (depth == 0) { end++; break; }
+                }
+            }
+            if (c == '\\' && !esc) esc = true; else esc = false;
+            end++;
+        }
+        return json.substr(pos, end - pos);
+    }
+    auto end = json.find_first_of(",}\r\n", pos);
+    if (end == std::string::npos) end = json.length();
     std::string v = json.substr(pos, end - pos);
     while (!v.empty() && (v.back() == ' ' || v.back() == '\t' || v.back() == '\r' || v.back() == '\n')) v.pop_back();
     return v;
 }
 
-static MethodBase findObjsMethod() {
+static MethodBase find_objs_method() {
     static MethodBase m;
     if (m.IsValid()) return m;
     Class oc("UnityEngine", "Object");
     for (auto& mt : oc.GetMethods(false)) {
         auto* mi = mt.GetInfo();
-        if (mi && mi->name && strcmp(mi->name, "FindObjectsOfType") == 0 && mi->parameters_count == 1)
-            if (mi->parameters[0] && strstr(typeName(mi->parameters[0]).c_str(), "Type"))
-            { m = mt; break; }
+        if (mi && is_valid_pointer(mi) && mi->name && is_valid_pointer(mi->name) && strcmp(mi->name, "FindObjectsOfType") == 0 && mi->parameters_count == 1) {
+            std::string pn = get_param_type_name(mi, 0);
+            if (pn.find("Type") != std::string::npos) {
+                m = mt; break;
+            }
+        }
     }
     return m;
 }
 
-static Il2CppObject* sysTypeOf(const std::string& aqn) {
+static Il2CppObject* sys_type_of(const std::string& aqn) {
     Class tc("System", "Type", Image("mscorlib.dll"));
     if (!tc.IsValid()) return nullptr;
     Method<Il2CppObject*> gt(tc.GetMethod("GetType", 1));
     return gt.IsValid() ? gt(CreateMonoString(aqn.c_str())) : nullptr;
 }
 
-static bool isObjectAlive(Il2CppObject* obj) {
-    if (!obj) return false;
+static bool is_object_alive(Il2CppObject* obj) {
+    if (!obj || !is_valid_pointer(obj) || !is_valid_pointer(obj->klass)) return false;
     try {
         Method<bool> m(Class("UnityEngine", "Object").GetMethod("op_Implicit", 1));
         if (m.IsValid()) return m(obj);
         auto* k = obj->klass;
-        if (!k || !k->name) return false;
+        if (!k || !is_valid_pointer(k) || !is_valid_pointer(k->name)) return false;
         return true;
     } catch(...) { return false; }
 }
 
-static Il2CppObject* resolveComponentByAddr(uintptr_t addr) {
-    if (!addr) return nullptr;
+static bool is_unity_object_instance(Il2CppObject* obj) {
+    if (!obj || !is_valid_pointer(obj) || !is_valid_pointer(obj->klass)) return false;
+    try {
+        for (auto* k = obj->klass; k && is_valid_pointer(k); k = k->parent) {
+            if (k->name && is_valid_pointer(k->name) && strcmp(k->name, "Object") == 0 &&
+                k->namespaze && is_valid_pointer(k->namespaze) && strcmp(k->namespaze, "UnityEngine") == 0) {
+                return true;
+            }
+        }
+    } catch(...) {}
+    return false;
+}
+
+static Il2CppObject* resolve_component_by_addr(uintptr_t addr) {
+    if (!addr || !is_valid_pointer((void*)addr)) return nullptr;
     Il2CppObject* obj = (Il2CppObject*)addr;
-    if (!isObjectAlive(obj)) return nullptr;
+    if (!is_object_alive(obj)) return nullptr;
     return obj;
 }
 
-static std::string assembliesJson() {
+static std::string assemblies_json() {
+    attach_thread();
     std::ostringstream j;
     j << "[";
     bool first = true;
     for (auto& img : Image::GetImages()) {
         auto* d = img.GetInfo();
-        if (!img.IsValid() || !d || !d->name) continue;
+        if (!img.IsValid() || !d || !is_valid_pointer(d) || !d->name || !is_valid_pointer(d->name)) continue;
         if (!first) j << ",";
         first = false;
-        j << "\"" << jsEsc(d->name) << "\"";
+        j << "\"" << js_esc(d->name) << "\"";
     }
     j << "]";
     return j.str();
 }
 
-static std::string classesJson(const std::string& asm_) {
+static std::string classes_json(const std::string& asm_) {
+    attach_thread();
     Image img(asm_);
     if (!img.IsValid()) return "[]";
     std::ostringstream j;
     j << "[";
     bool first = true;
     for (auto& cls : img.GetClasses(false)) {
-        auto* r = cls.GetClass();
-        if (!cls.IsValid() || !r || !r->name) continue;
-        if (!first) j << ",";
-        first = false;
-        std::string t = "class";
-        if (r->enumtype) t = "enum";
-        else if (r->byval_arg.valuetype) t = "struct";
-        else if (r->flags & 0x20) t = "interface";
-        j << "{\"name\":\"" << jsEsc(r->name) << "\",\"ns\":\"" << jsEsc(r->namespaze ? r->namespaze : "") << "\",\"t\":\"" << t << "\"}";
-    }
-    j << "]";
-    return j.str();
-}
-
-static std::string allClassesJson() {
-    std::ostringstream j;
-    j << "[";
-    bool first = true;
-    for (auto& img : Image::GetImages()) {
-        auto* d = img.GetInfo();
-        if (!img.IsValid() || !d || !d->name) continue;
-        std::string a = d->name;
-        for (auto& cls : img.GetClasses(false)) {
+        try {
             auto* r = cls.GetClass();
-            if (!cls.IsValid() || !r || !r->name) continue;
+            if (!cls.IsValid() || !r || !is_valid_pointer(r) || !r->name || !is_valid_pointer(r->name)) continue;
             if (!first) j << ",";
             first = false;
             std::string t = "class";
             if (r->enumtype) t = "enum";
             else if (r->byval_arg.valuetype) t = "struct";
             else if (r->flags & 0x20) t = "interface";
-            j << "{\"name\":\"" << jsEsc(r->name) << "\",\"ns\":\"" << jsEsc(r->namespaze ? r->namespaze : "") << "\",\"t\":\"" << t << "\",\"a\":\"" << jsEsc(a) << "\"}";
+            std::string ns = (r->namespaze && is_valid_pointer(r->namespaze)) ? r->namespaze : "";
+            j << "{\"name\":\"" << js_esc(r->name) << "\",\"ns\":\"" << js_esc(ns) << "\",\"t\":\"" << t << "\"}";
+        } catch(...) {}
+    }
+    j << "]";
+    return j.str();
+}
+
+static std::string all_classes_json() {
+    attach_thread();
+    std::ostringstream j;
+    j << "[";
+    bool first = true;
+    for (auto& img : Image::GetImages()) {
+        auto* d = img.GetInfo();
+        if (!img.IsValid() || !d || !is_valid_pointer(d) || !d->name || !is_valid_pointer(d->name)) continue;
+        std::string a = d->name;
+        for (auto& cls : img.GetClasses(false)) {
+            try {
+                auto* r = cls.GetClass();
+                if (!cls.IsValid() || !r || !is_valid_pointer(r) || !r->name || !is_valid_pointer(r->name)) continue;
+                if (!first) j << ",";
+                first = false;
+                std::string t = "class";
+                if (r->enumtype) t = "enum";
+                else if (r->byval_arg.valuetype) t = "struct";
+                else if (r->flags & 0x20) t = "interface";
+                std::string ns = (r->namespaze && is_valid_pointer(r->namespaze)) ? r->namespaze : "";
+                j << "{\"name\":\"" << js_esc(r->name) << "\",\"ns\":\"" << js_esc(ns) << "\",\"t\":\"" << t << "\",\"a\":\"" << js_esc(a) << "\"}";
+            } catch(...) {}
         }
     }
     j << "]";
     return j.str();
 }
 
-static std::string classDetailJson(const std::string& a, const std::string& ns, const std::string& cn) {
-    Class cls(ns.c_str(), cn.c_str(), Image(a.c_str()));
-    if (!cls.IsValid()) return "{}";
-    auto* r = cls.GetClass();
-    if (!r) return "{}";
+static std::string class_detail_json(const std::string& a, const std::string& ns, const std::string& cn) {
+    attach_thread();
+    if (cn.empty()) return "{}";
+    try {
+        Class cls = a.empty() ? Class(ns.c_str(), cn.c_str()) : Class(ns.c_str(), cn.c_str(), Image(a.c_str()));
+        if (!cls.IsValid()) {
+            for (auto& img : Image::GetImages()) {
+                if (!img.IsValid()) continue;
+                Class try_c(ns.c_str(), cn.c_str(), img);
+                if (try_c.IsValid()) { cls = try_c; break; }
+            }
+        }
+        if (!cls.IsValid()) return "{}";
+        auto* r = cls.GetClass();
+        if (!r || !is_valid_pointer(r)) return "{}";
 
-    std::ostringstream j;
-    j << "{\"name\":\"" << jsEsc(cn) << "\",\"ns\":\"" << jsEsc(ns) << "\",\"asm\":\"" << jsEsc(a) << "\",";
-    j << (r->parent && r->parent->name ? "\"parent\":\"" + jsEsc(r->parent->name) + "\"," : "\"parent\":null,");
+        std::ostringstream j;
+        j << "{\"name\":\"" << js_esc(cn) << "\",\"ns\":\"" << js_esc(ns) << "\",\"asm\":\"" << js_esc(a) << "\",";
+        j << (r->parent && is_valid_pointer(r->parent) && is_valid_pointer(r->parent->name) ? "\"parent\":\"" + js_esc(r->parent->name) + "\"," : "\"parent\":null,");
 
-    j << "\"fields\":[";
-    bool first = true;
-    for (auto& f : cls.GetFields(false)) {
-        auto* fi = f.GetInfo();
-        if (!f.IsValid() || !fi || !fi->name) continue;
-        if (!first) j << ",";
-        first = false;
-        j << "{\"name\":\"" << jsEsc(fi->name) << "\",\"type\":\"" << jsEsc(typeName(fi->type)) << "\",\"s\":" << (fi->type && (fi->type->attrs & 0x10) ? "true" : "false") << ",\"off\":" << fi->offset << "}";
-    }
+        j << "\"fields\":[";
+        bool first = true;
+        for (auto& f : cls.GetFields(false)) {
+            try {
+                auto* fi = f.GetInfo();
+                if (!f.IsValid() || !fi || !is_valid_pointer(fi) || !fi->name || !is_valid_pointer(fi->name)) continue;
+                if (!first) j << ",";
+                first = false;
+                std::string fn = fi->name;
+                std::string ft = (fi->type && is_valid_pointer(fi->type)) ? type_name(fi->type) : "?";
+                bool is_s = fi->type && is_valid_pointer(fi->type) && (fi->type->attrs & 0x10);
+                j << "{\"name\":\"" << js_esc(fn) << "\",\"type\":\"" << js_esc(ft) << "\",\"s\":" << (is_s ? "true" : "false") << ",\"off\":" << fi->offset << "}";
+            } catch(...) {}
+        }
 
-    j << "],\"methods\":[";
-    first = true;
-    for (auto& m : cls.GetMethods(false)) {
-        auto* mi = m.GetInfo();
-        if (!m.IsValid() || !mi || !mi->name) continue;
-        if (!first) j << ",";
-        first = false;
-        char ab[32] = {};
-        if (mi->methodPointer) snprintf(ab, sizeof(ab), "%llX", (unsigned long long)(uintptr_t)mi->methodPointer);
-        j << "{\"name\":\"" << jsEsc(mi->name) << "\",\"ret\":\"" << jsEsc(typeName(mi->return_type)) << "\",\"s\":" << ((mi->flags & 0x10) ? "true" : "false") << ",\"addr\":\"" << ab << "\",\"params\":[";
-        for (int i = 0; i < (int)mi->parameters_count; i++) {
-            if (i > 0) j << ",";
-            j << "{\"n\":\"arg" << i << "\",\"t\":\"" << jsEsc(mi->parameters && mi->parameters[i] ? typeName(mi->parameters[i]) : "?") << "\"}";
+        j << "],\"methods\":[";
+        first = true;
+        for (auto& m : cls.GetMethods(false)) {
+            try {
+                auto* mi = m.GetInfo();
+                if (!m.IsValid() || !mi || !is_valid_pointer(mi) || !mi->name || !is_valid_pointer(mi->name)) continue;
+                if (!first) j << ",";
+                first = false;
+                char ab[32] = {};
+                if (mi->methodPointer) snprintf(ab, sizeof(ab), "%llX", (unsigned long long)(uintptr_t)mi->methodPointer);
+                std::string ret_t = (mi->return_type && is_valid_pointer(mi->return_type)) ? type_name(mi->return_type) : "?";
+                bool is_s = (mi->flags & 0x10) != 0;
+                j << "{\"name\":\"" << js_esc(mi->name) << "\",\"ret\":\"" << js_esc(ret_t) << "\",\"s\":" << (is_s ? "true" : "false") << ",\"addr\":\"" << ab << "\",\"params\":[";
+                int pcount = (int)mi->parameters_count;
+                for (int i = 0; i < pcount; i++) {
+                    if (i > 0) j << ",";
+                    std::string pt = get_param_type_name(mi, i);
+                    std::string pn = get_param_name(mi, i);
+                    j << "{\"n\":\"" << js_esc(pn) << "\",\"t\":\"" << js_esc(pt) << "\"}";
+                }
+                j << "]}";
+            } catch(...) {}
+        }
+
+        j << "],\"props\":[";
+        first = true;
+        for (auto& p : cls.GetProperties(false)) {
+            try {
+                auto* pi = p._data;
+                if (!p.IsValid() || !pi || !is_valid_pointer(pi) || !pi->name || !is_valid_pointer(pi->name)) continue;
+                if (!first) j << ",";
+                first = false;
+                std::string pn = pi->name;
+                std::string pt = (pi->get && is_valid_pointer(pi->get) && pi->get->return_type && is_valid_pointer(pi->get->return_type)) ? type_name(pi->get->return_type) : "?";
+                j << "{\"name\":\"" << js_esc(pn) << "\",\"type\":\"" << js_esc(pt) << "\",\"g\":" << (pi->get ? "true" : "false") << ",\"s\":" << (pi->set ? "true" : "false") << "}";
+            } catch(...) {}
         }
         j << "]}";
+        return j.str();
+    } catch(...) {
+        return "{}";
     }
+}
 
-    j << "],\"props\":[";
-    first = true;
-    for (auto& p : cls.GetProperties(false)) {
-        auto* pi = p._data;
-        if (!p.IsValid() || !pi || !pi->name) continue;
-        if (!first) j << ",";
-        first = false;
-        j << "{\"name\":\"" << jsEsc(pi->name) << "\",\"type\":\"" << jsEsc(pi->get && pi->get->return_type ? typeName(pi->get->return_type) : "?") << "\",\"g\":" << (pi->get ? "true" : "false") << ",\"s\":" << (pi->set ? "true" : "false") << "}";
+
+static bool is_valid_object(Il2CppObject* o) {
+    if (!o || !is_readable(o, sizeof(Il2CppObject))) return false;
+    Il2CppClass* k = o->klass;
+    if (!k || !is_readable(k, 128)) return false;
+    if (!is_valid_pointer(k->name) || !is_readable(k->name, 1)) return false;
+    return true;
+}
+
+static std::string class_short_name(Il2CppClass* k) {
+    if (!k || !is_valid_pointer(k) || !is_valid_pointer(k->name)) return "?";
+    std::string n = k->name;
+    auto bt = n.find('`');
+    if (bt != std::string::npos) n = n.substr(0, bt);
+    return n;
+}
+
+static std::string class_full_name(Il2CppClass* k) {
+    if (!k || !is_valid_pointer(k) || !is_valid_pointer(k->name)) return "?";
+    std::string n = k->name;
+    if (k->namespaze && is_valid_pointer(k->namespaze) && k->namespaze[0] != '\0')
+        n = std::string(k->namespaze) + "." + n;
+    return n;
+}
+
+static bool class_inherits(Il2CppClass* k, const char* ns, const char* name) {
+    int guard = 0;
+    for (; k && is_valid_pointer(k) && guard < 32; k = k->parent, guard++) {
+        if (!is_valid_pointer(k->name) || !is_valid_pointer(k->namespaze)) continue;
+        if (strcmp(k->name, name) == 0 && strcmp(k->namespaze, ns) == 0) return true;
     }
-    j << "]}";
+    return false;
+}
+
+static bool is_string_object(Il2CppObject* o) {
+    if (!o || !is_valid_pointer(o->klass) || !is_valid_pointer(o->klass->name)) return false;
+    return strcmp(o->klass->name, "String") == 0 && is_valid_pointer(o->klass->namespaze) && strcmp(o->klass->namespaze, "System") == 0;
+}
+
+static std::string unity_object_name(Il2CppObject* o) {
+    try {
+        static Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine", "Object").GetMethod("get_name"));
+        if (gn.IsValid() && is_object_alive(o)) {
+            auto* s = gn[o]();
+            if (s) return s->str();
+        }
+    } catch(...) {}
+    return "";
+}
+
+static uintptr_t object_game_object(Il2CppObject* o) {
+    if (!is_valid_object(o)) return 0;
+    try {
+        if (class_inherits(o->klass, "UnityEngine", "GameObject")) return (uintptr_t)o;
+        if (class_inherits(o->klass, "UnityEngine", "Component")) {
+            static Method<Il2CppObject*> gg(Class("UnityEngine", "Component").GetMethod("get_gameObject"));
+            if (gg.IsValid() && is_object_alive(o)) {
+                Il2CppObject* go = gg[o]();
+                if (go && is_valid_object(go)) return (uintptr_t)go;
+            }
+        }
+    } catch(...) {}
+    return 0;
+}
+
+struct collection_info {
+    std::string kind;
+    int count = 0;
+    Il2CppObject* items = nullptr;
+    Il2CppClass* elem_class = nullptr;
+    bool listable = false;
+};
+
+static bool read_int_field(Il2CppObject* o, std::initializer_list<const char*> names, int& out) {
+    Class c(o->klass);
+    for (const char* n : names) {
+        for (Class cur = c; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
+            Field<int> f = cur.GetField(n);
+            if (f.IsValid()) {
+                f.SetInstance(o);
+                out = f();
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool read_ref_field(Il2CppObject* o, std::initializer_list<const char*> names, Il2CppObject*& out) {
+    Class c(o->klass);
+    for (const char* n : names) {
+        for (Class cur = c; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
+            Field<Il2CppObject*> f = cur.GetField(n);
+            if (f.IsValid()) {
+                f.SetInstance(o);
+                out = f();
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static int array_length(Il2CppObject* arr) {
+    if (!arr || !is_readable(arr, 32)) return 0;
+    auto* a = (Array<uint8_t>*)arr;
+    int n = (int)a->capacity;
+    if (n < 0 || n > 10000000) return 0;
+    return n;
+}
+
+static bool get_collection_info(Il2CppObject* o, collection_info& ci) {
+    ci = collection_info();
+    if (!is_valid_object(o)) return false;
+    Il2CppClass* k = o->klass;
+    std::string n = k->name;
+    try {
+        if (n.size() > 2 && n.compare(n.size() - 2, 2, "[]") == 0 && k->element_class) {
+            ci.kind = "Array";
+            ci.items = o;
+            ci.count = array_length(o);
+            ci.elem_class = k->element_class;
+            ci.listable = true;
+            return true;
+        }
+        if (n.compare(0, 6, "List`1") == 0) {
+            ci.kind = "List";
+            read_int_field(o, {"_size", "size"}, ci.count);
+            Il2CppObject* items = nullptr;
+            read_ref_field(o, {"_items", "items"}, items);
+            if (items && is_valid_object(items)) {
+                ci.items = items;
+                ci.elem_class = items->klass->element_class;
+            }
+            ci.listable = true;
+            return true;
+        }
+        if (n.compare(0, 12, "Dictionary`2") == 0) {
+            ci.kind = "Dictionary";
+            int total = 0, freed = 0;
+            if (read_int_field(o, {"_count"}, total)) {
+                read_int_field(o, {"_freeCount"}, freed);
+                ci.count = total - freed;
+            } else {
+                read_int_field(o, {"count"}, ci.count);
+            }
+            ci.listable = true;
+            return true;
+        }
+        static const char* count_only[][2] = {
+            {"HashSet`1", "HashSet"}, {"Queue`1", "Queue"}, {"Stack`1", "Stack"},
+            {"LinkedList`1", "LinkedList"}, {"SortedList`2", "SortedList"}, {"SortedDictionary`2", "SortedDictionary"}
+        };
+        for (auto& e : count_only) {
+            if (n == e[0]) {
+                ci.kind = e[1];
+                read_int_field(o, {"_count", "m_count", "count", "_size", "size"}, ci.count);
+                return true;
+            }
+        }
+    } catch(...) {}
+    return false;
+}
+
+static std::string object_summary(Il2CppObject* o) {
+    if (!is_valid_object(o)) return "";
+    Il2CppClass* k = o->klass;
+    try {
+        if (is_string_object(o)) {
+            auto* s = (BNM::Structures::Mono::String*)o;
+            std::string v = s->str();
+            if (v.size() > 80) v = v.substr(0, 80) + "...";
+            return "\"" + v + "\"";
+        }
+        collection_info ci;
+        if (get_collection_info(o, ci)) {
+            std::string label;
+            if (ci.kind == "Array") label = class_full_name(k);
+            else {
+                label = ci.kind;
+                if (ci.elem_class) label += "<" + class_full_name(ci.elem_class) + ">";
+            }
+            return label + " [" + std::to_string(ci.count) + "]";
+        }
+        if (is_unity_object_instance(o)) {
+            std::string nm = unity_object_name(o);
+            std::string cn = class_short_name(k);
+            return nm.empty() ? cn : nm + " (" + cn + ")";
+        }
+    } catch(...) {}
+    return class_full_name(k);
+}
+
+static std::string object_ref_string(Il2CppObject* o) {
+    if (!o || !is_valid_pointer(o)) return "0x0";
+    char buf[32];
+    snprintf(buf, sizeof(buf), "0x%llX", (unsigned long long)(uintptr_t)o);
+    std::string sm = object_summary(o);
+    if (sm.empty()) return buf;
+    return std::string(buf) + " (" + sm + ")";
+}
+
+static std::string object_kind(Il2CppObject* o) {
+    if (!is_valid_object(o)) return "invalid";
+    if (is_string_object(o)) return "string";
+    if (class_inherits(o->klass, "UnityEngine", "GameObject")) return "gameobject";
+    if (class_inherits(o->klass, "UnityEngine", "Component")) return "component";
+    collection_info ci;
+    if (get_collection_info(o, ci)) return ci.listable ? "collection" : "counted";
+    if (is_unity_object_instance(o)) return "unity_object";
+    return "object";
+}
+
+static bool read_value_at(Il2CppClass* ec, uint8_t* p, std::string& out, Il2CppObject*& ref) {
+    ref = nullptr;
+    out = "?";
+    if (!ec || !is_valid_pointer(ec) || !is_valid_pointer(ec->name)) return false;
+    if (!is_readable(p, 16)) { out = "<unreadable>"; return false; }
+    bool is_value = ec->byval_arg.valuetype || ec->enumtype;
+    std::string nm = ec->name;
+    char b[160];
+    if (ec->enumtype) { out = std::to_string(*(int32_t*)p); return true; }
+    if (is_value) {
+        if (nm == "Int32") out = std::to_string(*(int32_t*)p);
+        else if (nm == "UInt32") out = std::to_string(*(uint32_t*)p);
+        else if (nm == "Int64") out = std::to_string(*(int64_t*)p);
+        else if (nm == "UInt64") out = std::to_string(*(uint64_t*)p);
+        else if (nm == "Int16") out = std::to_string(*(int16_t*)p);
+        else if (nm == "UInt16" || nm == "Char") out = std::to_string(*(uint16_t*)p);
+        else if (nm == "Byte") out = std::to_string(*(uint8_t*)p);
+        else if (nm == "SByte") out = std::to_string(*(int8_t*)p);
+        else if (nm == "Boolean") out = (*(uint8_t*)p) ? "true" : "false";
+        else if (nm == "IntPtr" || nm == "UIntPtr") { snprintf(b, sizeof(b), "0x%llX", (unsigned long long)*(uint64_t*)p); out = b; }
+        else if (nm == "Single") { snprintf(b, sizeof(b), "%g", *(float*)p); out = b; }
+        else if (nm == "Double") { snprintf(b, sizeof(b), "%g", *(double*)p); out = b; }
+        else if (nm == "Vector3") { float* f = (float*)p; snprintf(b, sizeof(b), "[%g, %g, %g]", f[0], f[1], f[2]); out = b; }
+        else if (nm == "Vector2") { float* f = (float*)p; snprintf(b, sizeof(b), "[%g, %g]", f[0], f[1]); out = b; }
+        else if (nm == "Vector4" || nm == "Quaternion" || nm == "Color") { float* f = (float*)p; snprintf(b, sizeof(b), "[%g, %g, %g, %g]", f[0], f[1], f[2], f[3]); out = b; }
+        else if (nm == "Vector3Int") { int32_t* f = (int32_t*)p; snprintf(b, sizeof(b), "[%d, %d, %d]", f[0], f[1], f[2]); out = b; }
+        else if (nm == "Vector2Int") { int32_t* f = (int32_t*)p; snprintf(b, sizeof(b), "[%d, %d]", f[0], f[1]); out = b; }
+        else out = "{" + class_full_name(ec) + "}";
+        return true;
+    }
+    Il2CppObject* r = *(Il2CppObject**)p;
+    ref = r;
+    if (!r) { out = "null"; return true; }
+    if (!is_valid_object(r)) { out = "<invalid>"; ref = nullptr; return false; }
+    out = object_summary(r);
+    return true;
+}
+
+static std::string collection_item_json(const std::string& label, Il2CppClass* ec, uint8_t* p) {
+    std::string v;
+    Il2CppObject* ref = nullptr;
+    read_value_at(ec, p, v, ref);
+    std::ostringstream j;
+    j << "{\"i\":\"" << js_esc(label) << "\",\"t\":\"" << js_esc(class_full_name(ec)) << "\",\"v\":\"" << js_esc(v) << "\"";
+    if (ref && is_valid_object(ref)) {
+        char ab[32];
+        snprintf(ab, sizeof(ab), "%llX", (unsigned long long)(uintptr_t)ref);
+        j << ",\"addr\":\"" << ab << "\",\"kind\":\"" << object_kind(ref) << "\"";
+    } else {
+        j << ",\"addr\":\"\",\"kind\":\"value\"";
+    }
+    j << "}";
     return j.str();
 }
 
-struct InvokeResult { bool ok; std::string val, err; };
+static uint32_t array_stride(Il2CppObject* arr, Il2CppClass* ec) {
+    uint32_t st = arr && arr->klass ? arr->klass->element_size : 0;
+    if (st == 0 && ec) {
+        bool is_value = ec->byval_arg.valuetype || ec->enumtype;
+        st = is_value ? (ec->instance_size > sizeof(Il2CppObject) ? ec->instance_size - (uint32_t)sizeof(Il2CppObject) : 4) : (uint32_t)sizeof(void*);
+    }
+    return st;
+}
 
-static InvokeResult invokeMethod(const std::string& body) {
-    AttachThread();
-    InvokeResult res = {false, "", ""};
-    std::string a = jsonVal(body, "asm"), ns = jsonVal(body, "ns"), cn = jsonVal(body, "cls"), mn = jsonVal(body, "method");
-    bool isStatic = jsonVal(body, "static") == "true" || jsonVal(body, "static") == "1";
-    uintptr_t instAddr = (uintptr_t)strtoull(jsonVal(body, "instance").c_str(), nullptr, 16);
+static uint8_t* array_data(Il2CppObject* arr) {
+    return (uint8_t*)((Array<uint8_t>*)arr)->m_Items;
+}
 
-    std::vector<std::string> argT, argV;
+static std::string dictionary_items_json(Il2CppObject* o, int max_items, bool& truncated) {
+    std::ostringstream j;
+    bool first = true;
+    int emitted = 0;
+    Il2CppObject* entries = nullptr;
+    if (read_ref_field(o, {"_entries", "entries"}, entries) && entries && is_valid_object(entries)) {
+        Il2CppClass* ec = entries->klass->element_class;
+        uint32_t stride = array_stride(entries, ec);
+        int len = array_length(entries);
+        int off_hash = -1, off_key = -1, off_val = -1;
+        Il2CppClass* kc = nullptr;
+        Il2CppClass* vc = nullptr;
+        int min_off = 1 << 30;
+        Class ecl(ec);
+        for (auto& f : ecl.GetFields(false)) {
+            auto* fi = f.GetInfo();
+            if (!f.IsValid() || !fi || !is_valid_pointer(fi) || !is_valid_pointer(fi->name) || !fi->type || (fi->type->attrs & 0x10)) continue;
+            if ((int)fi->offset < min_off) min_off = (int)fi->offset;
+        }
+        int adj = min_off >= (int)sizeof(Il2CppObject) && min_off != (1 << 30) ? (int)sizeof(Il2CppObject) : 0;
+        for (auto& f : ecl.GetFields(false)) {
+            auto* fi = f.GetInfo();
+            if (!f.IsValid() || !fi || !is_valid_pointer(fi) || !is_valid_pointer(fi->name) || !fi->type || (fi->type->attrs & 0x10)) continue;
+            std::string fname = fi->name;
+            Class fc(fi->type);
+            if (fname == "hashCode") off_hash = (int)fi->offset - adj;
+            else if (fname == "key") { off_key = (int)fi->offset - adj; kc = fc.GetClass(); }
+            else if (fname == "value") { off_val = (int)fi->offset - adj; vc = fc.GetClass(); }
+        }
+        if (off_key >= 0 && off_val >= 0 && kc && vc && stride > 0) {
+            uint8_t* base = array_data(entries);
+            for (int i = 0; i < len; i++) {
+                if (emitted >= max_items) { truncated = true; break; }
+                uint8_t* e = base + (size_t)i * stride;
+                if (!is_readable(e, std::min<uint32_t>(stride, 64))) break;
+                if (off_hash >= 0 && *(int32_t*)(e + off_hash) < 0) continue;
+                std::string kv;
+                Il2CppObject* kr = nullptr;
+                read_value_at(kc, e + off_key, kv, kr);
+                if (!first) j << ",";
+                first = false;
+                j << collection_item_json(kv, vc, e + off_val);
+                emitted++;
+            }
+        }
+        return j.str();
+    }
+    Il2CppObject* key_slots = nullptr;
+    Il2CppObject* val_slots = nullptr;
+    Il2CppObject* link_slots = nullptr;
+    int touched = 0;
+    if (read_ref_field(o, {"keySlots"}, key_slots) && read_ref_field(o, {"valueSlots"}, val_slots) &&
+        key_slots && val_slots && is_valid_object(key_slots) && is_valid_object(val_slots)) {
+        read_ref_field(o, {"linkSlots"}, link_slots);
+        read_int_field(o, {"touchedSlots"}, touched);
+        Il2CppClass* kc = key_slots->klass->element_class;
+        Il2CppClass* vc = val_slots->klass->element_class;
+        uint32_t ks = array_stride(key_slots, kc), vs = array_stride(val_slots, vc);
+        uint32_t ls = link_slots && is_valid_object(link_slots) ? array_stride(link_slots, link_slots->klass->element_class) : 0;
+        int len = std::min(touched, std::min(array_length(key_slots), array_length(val_slots)));
+        for (int i = 0; i < len; i++) {
+            if (emitted >= max_items) { truncated = true; break; }
+            if (ls >= 4) {
+                uint8_t* lp = array_data(link_slots) + (size_t)i * ls;
+                if (!is_readable(lp, 4)) break;
+                if ((*(uint32_t*)lp & 0x80000000u) == 0) continue;
+            }
+            std::string kv;
+            Il2CppObject* kr = nullptr;
+            read_value_at(kc, array_data(key_slots) + (size_t)i * ks, kv, kr);
+            if (!first) j << ",";
+            first = false;
+            j << collection_item_json(kv, vc, array_data(val_slots) + (size_t)i * vs);
+            emitted++;
+        }
+    }
+    return j.str();
+}
+
+static std::string collection_json(uintptr_t addr) {
+    attach_thread();
+    Il2CppObject* o = (Il2CppObject*)addr;
+    collection_info ci;
+    if (!addr || !get_collection_info(o, ci)) return "{\"ok\":false,\"error\":\"Not a supported collection\"}";
+    std::ostringstream j;
+    const int max_items = 300;
+    bool truncated = false;
+    j << "{\"ok\":true,\"kind\":\"" << ci.kind << "\",\"type\":\"" << js_esc(class_full_name(o->klass)) << "\",\"count\":" << ci.count
+      << ",\"elem\":\"" << js_esc(ci.elem_class ? class_full_name(ci.elem_class) : "") << "\",\"items\":[";
+    try {
+        if (ci.kind == "Dictionary") {
+            j << dictionary_items_json(o, max_items, truncated);
+        } else if (ci.items && ci.elem_class) {
+            int len = std::min(ci.count, array_length(ci.items));
+            uint32_t stride = array_stride(ci.items, ci.elem_class);
+            uint8_t* base = array_data(ci.items);
+            bool first = true;
+            for (int i = 0; i < len; i++) {
+                if (i >= max_items) { truncated = true; break; }
+                if (!first) j << ",";
+                first = false;
+                j << collection_item_json(std::to_string(i), ci.elem_class, base + (size_t)i * stride);
+            }
+        }
+    } catch(...) {}
+    j << "],\"truncated\":" << (truncated ? "true" : "false") << "}";
+    return j.str();
+}
+
+static std::string object_info_json(uintptr_t addr) {
+    attach_thread();
+    Il2CppObject* o = (Il2CppObject*)addr;
+    if (!addr || !is_valid_object(o)) return "{\"ok\":false}";
+    Il2CppClass* k = o->klass;
+    std::string asm_name = (k->image && is_valid_pointer(k->image) && k->image->name && is_valid_pointer(k->image->name)) ? k->image->name : "";
+    std::string ns = (k->namespaze && is_valid_pointer(k->namespaze)) ? k->namespaze : "";
+    std::string nm = k->name;
+    char ab[32];
+    snprintf(ab, sizeof(ab), "%llX", (unsigned long long)addr);
+    char gb[32] = {};
+    uintptr_t go = object_game_object(o);
+    if (go) snprintf(gb, sizeof(gb), "%llX", (unsigned long long)go);
+    std::ostringstream j;
+    j << "{\"ok\":true,\"addr\":\"" << ab << "\",\"kind\":\"" << object_kind(o) << "\",\"go\":\"" << gb << "\",\"asm\":\"" << js_esc(asm_name)
+      << "\",\"ns\":\"" << js_esc(ns) << "\",\"cls\":\"" << js_esc(nm) << "\",\"summary\":\"" << js_esc(object_summary(o)) << "\"}";
+    return j.str();
+}
+
+struct invoke_result { bool ok; std::string val, err; };
+
+static invoke_result invoke_method(const std::string& body) {
+    attach_thread();
+    invoke_result res = {false, "", ""};
+    std::string a = json_val(body, "asm"), ns = json_val(body, "ns"), cn = json_val(body, "cls"), mn = json_val(body, "method");
+    bool is_static = json_val(body, "static") == "true" || json_val(body, "static") == "1";
+    uintptr_t inst_addr = (uintptr_t)strtoull(json_val(body, "instance").c_str(), nullptr, 16);
+
+    if (!is_static && (!inst_addr || !is_valid_pointer((void*)inst_addr))) {
+        res.err = "Instance address is invalid or null for non-static method";
+        return res;
+    }
+
+    std::vector<std::string> arg_t, arg_v;
     auto ap = body.find("\"args\":[");
     if (ap != std::string::npos) {
         ap += 8;
@@ -356,97 +933,125 @@ static InvokeResult invokeMethod(const std::string& body) {
                 auto ob = ab.find("{", p), cb = ab.find("}", ob);
                 if (ob == std::string::npos || cb == std::string::npos) break;
                 std::string e = "{" + ab.substr(ob + 1, cb - ob - 1) + "}";
-                argT.push_back(jsonVal(e, "t"));
-                argV.push_back(jsonVal(e, "v"));
+                arg_t.push_back(json_val(e, "t"));
+                arg_v.push_back(json_val(e, "v"));
                 p = cb + 1;
             }
         }
     }
 
-    if (a.empty() || cn.empty() || mn.empty()) { res.err = "Missing asm/cls/method"; return res; }
+    if (cn.empty() || mn.empty()) { res.err = "Missing class or method name"; return res; }
 
-    Class cls(ns.c_str(), cn.c_str(), Image(a.c_str()));
-    if (!cls.IsValid()) { res.err = "Class not found"; return res; }
+    Class cls = a.empty() ? Class(ns.c_str(), cn.c_str()) : Class(ns.c_str(), cn.c_str(), Image(a.c_str()));
+    if (!cls.IsValid()) {
+        for (auto& img : Image::GetImages()) {
+            if (!img.IsValid()) continue;
+            Class try_c(ns.c_str(), cn.c_str(), img);
+            if (try_c.IsValid()) { cls = try_c; break; }
+        }
+    }
+    if (!cls.IsValid()) { res.err = "Target class not found"; return res; }
 
-    MethodBase mb = cls.GetMethod(mn.c_str(), (int)argT.size());
+    MethodBase mb = cls.GetMethod(mn.c_str(), (int)arg_t.size());
     if (!mb.IsValid()) mb = cls.GetMethod(mn.c_str());
     if (!mb.IsValid()) {
         for (Class cur = cls.GetParent(); cur.IsValid() && cur.GetClass() && !mb.IsValid(); cur = cur.GetParent()) {
-            mb = cur.GetMethod(mn.c_str(), (int)argT.size());
+            mb = cur.GetMethod(mn.c_str(), (int)arg_t.size());
             if (!mb.IsValid()) mb = cur.GetMethod(mn.c_str());
         }
     }
-    if (!mb.IsValid()) { res.err = "Method not found"; return res; }
+    if (!mb.IsValid()) { res.err = "Method not found in class hierarchy"; return res; }
     auto* mi = mb.GetInfo();
-    if (!mi || !mi->methodPointer) { res.err = "No pointer"; return res; }
+    if (!mi || !mi->methodPointer) { res.err = "No compiled pointer for method"; return res; }
 
-    std::vector<void*> runtimeArgs;
+    std::vector<void*> runtime_args;
     std::vector<int32_t> vi;
+    std::vector<uint32_t> vui;
     std::vector<int64_t> vi64;
+    std::vector<uint64_t> vui64;
     std::vector<float> vf;
     std::vector<double> vd;
     std::vector<uint8_t> vb;
+    std::vector<int8_t> vs8;
     std::vector<int16_t> vs16;
+    std::vector<uint16_t> vus16;
     std::vector<Vector3> vv3;
     std::vector<Vector2> vv2;
     std::vector<Color> vc;
     std::vector<Vector4> vv4;
+    std::vector<vector3_int> vv3i;
+    std::vector<vector2_int> vv2i;
+    std::vector<void*> vptrs;
 
-    for (size_t i = 0; i < argT.size(); i++) {
-        auto& t = argT[i]; auto& v = argV[i];
+    for (size_t i = 0; i < arg_t.size(); i++) {
+        auto& t = arg_t[i]; auto& v = arg_v[i];
         if (t=="System.Int32"||t=="Int32"||t=="int") {
-            vi.push_back(std::stoi(v.empty()?"0":v)); runtimeArgs.push_back(&vi.back());
+            vi.push_back(std::stoi(v.empty()?"0":v)); runtime_args.push_back(&vi.back());
+        } else if (t=="System.UInt32"||t=="UInt32"||t=="uint") {
+            vui.push_back((uint32_t)std::stoul(v.empty()?"0":v)); runtime_args.push_back(&vui.back());
         } else if (t=="System.Int64"||t=="Int64"||t=="long") {
-            vi64.push_back(std::stoll(v.empty()?"0":v)); runtimeArgs.push_back(&vi64.back());
+            vi64.push_back(std::stoll(v.empty()?"0":v)); runtime_args.push_back(&vi64.back());
+        } else if (t=="System.UInt64"||t=="UInt64"||t=="ulong") {
+            vui64.push_back(std::stoull(v.empty()?"0":v)); runtime_args.push_back(&vui64.back());
         } else if (t=="System.Single"||t=="Single"||t=="float") {
-            vf.push_back(std::stof(v.empty()?"0":v)); runtimeArgs.push_back(&vf.back());
+            vf.push_back(std::stof(v.empty()?"0":v)); runtime_args.push_back(&vf.back());
         } else if (t=="System.Double"||t=="Double"||t=="double") {
-            vd.push_back(std::stod(v.empty()?"0":v)); runtimeArgs.push_back(&vd.back());
+            vd.push_back(std::stod(v.empty()?"0":v)); runtime_args.push_back(&vd.back());
         } else if (t=="System.Boolean"||t=="Boolean"||t=="bool") {
-            vb.push_back((uint8_t)(v=="true"||v=="1"?1:0)); runtimeArgs.push_back(&vb.back());
+            vb.push_back((uint8_t)(v=="true"||v=="1"?1:0)); runtime_args.push_back(&vb.back());
         } else if (t=="System.Byte"||t=="Byte"||t=="byte") {
-            vb.push_back((uint8_t)std::stoul(v.empty()?"0":v)); runtimeArgs.push_back(&vb.back());
+            vb.push_back((uint8_t)std::stoul(v.empty()?"0":v)); runtime_args.push_back(&vb.back());
+        } else if (t=="System.SByte"||t=="SByte"||t=="sbyte") {
+            vs8.push_back((int8_t)std::stoi(v.empty()?"0":v)); runtime_args.push_back(&vs8.back());
         } else if (t=="System.Int16"||t=="Int16"||t=="short") {
-            vs16.push_back((int16_t)std::stoi(v.empty()?"0":v)); runtimeArgs.push_back(&vs16.back());
+            vs16.push_back((int16_t)std::stoi(v.empty()?"0":v)); runtime_args.push_back(&vs16.back());
+        } else if (t=="System.UInt16"||t=="UInt16"||t=="ushort") {
+            vus16.push_back((uint16_t)std::stoul(v.empty()?"0":v)); runtime_args.push_back(&vus16.back());
         } else if (t=="UnityEngine.Vector3"||t=="Vector3") {
-            float x=0,y=0,z=0; sscanf(v.c_str(),"[%f,%f,%f]",&x,&y,&z); vv3.push_back({x,y,z}); runtimeArgs.push_back(&vv3.back());
+            float x=0,y=0,z=0; sscanf(v.c_str(),"[%f,%f,%f]",&x,&y,&z); vv3.push_back({x,y,z}); runtime_args.push_back(&vv3.back());
         } else if (t=="UnityEngine.Vector2"||t=="Vector2") {
-            float x=0,y=0; sscanf(v.c_str(),"[%f,%f]",&x,&y); vv2.push_back({x,y}); runtimeArgs.push_back(&vv2.back());
+            float x=0,y=0; sscanf(v.c_str(),"[%f,%f]",&x,&y); vv2.push_back({x,y}); runtime_args.push_back(&vv2.back());
+        } else if (t=="UnityEngine.Vector3Int"||t=="Vector3Int") {
+            int x=0,y=0,z=0; sscanf(v.c_str(),"[%d,%d,%d]",&x,&y,&z); vv3i.push_back({x,y,z}); runtime_args.push_back(&vv3i.back());
+        } else if (t=="UnityEngine.Vector2Int"||t=="Vector2Int") {
+            int x=0,y=0; sscanf(v.c_str(),"[%d,%d]",&x,&y); vv2i.push_back({x,y}); runtime_args.push_back(&vv2i.back());
         } else if (t=="UnityEngine.Color"||t=="Color") {
-            float r=1,g=1,b=1,aa=1; sscanf(v.c_str(),"[%f,%f,%f,%f]",&r,&g,&b,&aa); vc.push_back({r,g,b,aa}); runtimeArgs.push_back(&vc.back());
+            float r=1,g=1,b=1,aa=1; sscanf(v.c_str(),"[%f,%f,%f,%f]",&r,&g,&b,&aa); vc.push_back({r,g,b,aa}); runtime_args.push_back(&vc.back());
         } else if (t=="UnityEngine.Vector4"||t=="Vector4"||t=="UnityEngine.Quaternion"||t=="Quaternion") {
-            float x=0,y=0,z=0,w=0; sscanf(v.c_str(),"[%f,%f,%f,%f]",&x,&y,&z,&w); vv4.push_back({x,y,z,w}); runtimeArgs.push_back(&vv4.back());
+            float x=0,y=0,z=0,w=0; sscanf(v.c_str(),"[%f,%f,%f,%f]",&x,&y,&z,&w); vv4.push_back({x,y,z,w}); runtime_args.push_back(&vv4.back());
         } else if (t=="System.String"||t=="String"||t=="string") {
-            runtimeArgs.push_back(CreateMonoString(v));
+            runtime_args.push_back(CreateMonoString(v));
         } else {
-            runtimeArgs.push_back((void*)strtoull(v.empty()?"0":v.c_str(), nullptr, 16));
+            uintptr_t ptr = (uintptr_t)strtoull(v.empty()?"0":v.c_str(), nullptr, 16);
+            vptrs.push_back((void*)ptr);
+            runtime_args.push_back(vptrs.back());
         }
     }
 
-    void* inst = isStatic ? nullptr : (void*)instAddr;
-    std::string rtn = typeName(mi->return_type);
+    void* inst = is_static ? nullptr : (void*)inst_addr;
+    std::string rtn = (mi->return_type && is_valid_pointer(mi->return_type)) ? type_name(mi->return_type) : "?";
     std::ostringstream out;
 
     Il2CppException* exc = nullptr;
-    void* ret = BNM::Internal::il2cppMethods.il2cpp_runtime_invoke(mi, inst, runtimeArgs.empty() ? nullptr : runtimeArgs.data(), &exc);
+    void* ret = BNM::Internal::il2cppMethods.il2cpp_runtime_invoke(mi, inst, runtime_args.empty() ? nullptr : runtime_args.data(), &exc);
 
     if (exc) {
-        BNM::Structures::Mono::String* excMsg = nullptr;
+        BNM::Structures::Mono::String* exc_msg = nullptr;
         try {
-            auto excCls = Class(((Il2CppObject*)exc)->klass);
-            if (excCls.IsValid()) {
-                auto msgMethod = excCls.GetMethod("get_Message", 0);
-                if (msgMethod.IsValid()) {
-                    auto* msgMi = msgMethod.GetInfo();
-                    if (msgMi && msgMi->methodPointer) {
+            auto exc_cls = Class(((Il2CppObject*)exc)->klass);
+            if (exc_cls.IsValid()) {
+                auto msg_method = exc_cls.GetMethod("get_Message", 0);
+                if (msg_method.IsValid()) {
+                    auto* msg_mi = msg_method.GetInfo();
+                    if (msg_mi && msg_mi->methodPointer) {
                         Il2CppException* inner = nullptr;
-                        auto* msgRet = (Il2CppObject*)BNM::Internal::il2cppMethods.il2cpp_runtime_invoke(msgMi, exc, nullptr, &inner);
-                        if (msgRet && !inner) excMsg = (BNM::Structures::Mono::String*)msgRet;
+                        auto* msg_ret = (Il2CppObject*)BNM::Internal::il2cppMethods.il2cpp_runtime_invoke(msg_mi, exc, nullptr, &inner);
+                        if (msg_ret && !inner) exc_msg = (BNM::Structures::Mono::String*)msg_ret;
                     }
                 }
             }
         } catch(...) {}
-        res.err = excMsg ? excMsg->str() : "IL2CPP exception";
+        res.err = exc_msg ? exc_msg->str() : "IL2CPP execution exception occurred";
         return res;
     }
 
@@ -461,14 +1066,23 @@ static InvokeResult invokeMethod(const std::string& body) {
     } else if (rtn=="System.Int32"||rtn=="Int32"||rtn=="int") {
         int v = ret ? *(int*)((uint8_t*)ret + sizeof(Il2CppObject)) : 0;
         out << v;
+    } else if (rtn=="System.UInt32"||rtn=="UInt32"||rtn=="uint") {
+        uint32_t v = ret ? *(uint32_t*)((uint8_t*)ret + sizeof(Il2CppObject)) : 0;
+        out << v;
     } else if (rtn=="System.Int64"||rtn=="Int64"||rtn=="long") {
         int64_t v = ret ? *(int64_t*)((uint8_t*)ret + sizeof(Il2CppObject)) : 0;
+        out << v;
+    } else if (rtn=="System.UInt64"||rtn=="UInt64"||rtn=="ulong") {
+        uint64_t v = ret ? *(uint64_t*)((uint8_t*)ret + sizeof(Il2CppObject)) : 0;
         out << v;
     } else if (rtn=="System.Boolean"||rtn=="Boolean"||rtn=="bool") {
         bool v = ret ? *(bool*)((uint8_t*)ret + sizeof(Il2CppObject)) : false;
         out << (v?"true":"false");
     } else if (rtn=="System.Byte"||rtn=="Byte"||rtn=="byte") {
         uint8_t v = ret ? *(uint8_t*)((uint8_t*)ret + sizeof(Il2CppObject)) : 0;
+        out << (int)v;
+    } else if (rtn=="System.SByte"||rtn=="SByte"||rtn=="sbyte") {
+        int8_t v = ret ? *(int8_t*)((uint8_t*)ret + sizeof(Il2CppObject)) : 0;
         out << (int)v;
     } else if (rtn=="UnityEngine.Vector3"||rtn=="Vector3") {
         Vector3 v = ret ? *(Vector3*)((uint8_t*)ret + sizeof(Il2CppObject)) : Vector3{0,0,0};
@@ -483,26 +1097,31 @@ static InvokeResult invokeMethod(const std::string& body) {
         auto* s = (BNM::Structures::Mono::String*)ret;
         out << (s ? s->str() : "null");
     } else {
-        char buf[64]; snprintf(buf,sizeof(buf),"0x%llX",(unsigned long long)(uintptr_t)ret);
-        out << rtn << " @ " << buf;
+        if (!ret) out << "null";
+        else out << rtn << " @ " << object_ref_string((Il2CppObject*)ret);
     }
     res.ok = true; res.val = out.str();
     return res;
 }
 
-static std::string instancesJson(const std::string& a, const std::string& ns, const std::string& cn) {
-    AttachThread();
+static std::string instances_json(const std::string& a, const std::string& ns, const std::string& cn) {
+    attach_thread();
+    if (cn.empty()) return "{\"instances\":[]}";
     std::string full = ns.empty() ? cn : ns + "." + cn;
-    std::string aNoExt = a;
-    auto dp = aNoExt.find(".dll");
-    if (dp != std::string::npos) aNoExt = aNoExt.substr(0, dp);
+    std::string a_no_ext = a;
+    auto dp = a_no_ext.find(".dll");
+    if (dp != std::string::npos) a_no_ext = a_no_ext.substr(0, dp);
 
-    Il2CppObject* st = sysTypeOf(full + ", " + aNoExt);
-    if (!st) st = sysTypeOf(full);
-    if (!st) return "{\"error\":\"Class not found / System.Type missing\"}";
+    Il2CppObject* st = sys_type_of(full + ", " + a_no_ext);
+    if (!st) st = sys_type_of(full);
+    if (!st) {
+        Class c = a.empty() ? Class(ns.c_str(), cn.c_str()) : Class(ns.c_str(), cn.c_str(), Image(a.c_str()));
+        if (c.IsValid()) st = (Il2CppObject*)c.GetMonoType();
+    }
+    if (!st) return "{\"instances\":[],\"error\":\"Class not found / System.Type missing\"}";
 
-    auto fm = findObjsMethod();
-    if (!fm.IsValid()) return "{\"error\":\"FindObjectsOfType missing\"}";
+    auto fm = find_objs_method();
+    if (!fm.IsValid()) return "{\"instances\":[],\"error\":\"FindObjectsOfType missing\"}";
 
     std::ostringstream j;
     j << "{\"instances\":[";
@@ -513,13 +1132,16 @@ static std::string instancesJson(const std::string& a, const std::string& ns, co
             Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine","Object").GetMethod("get_name"));
             for (int i = 0; i < arr->capacity; i++) {
                 Il2CppObject* obj = arr->m_Items[i];
-                if (!obj) continue;
+                if (!obj || !is_valid_pointer(obj)) continue;
                 if (!first) j << ",";
                 first = false;
-                std::string name = "obj";
-                if (gn.IsValid()) { auto* s = gn[obj](); if (s) name = s->str(); }
+                std::string name = cn;
+                if (is_unity_object_instance(obj) && gn.IsValid()) {
+                    auto* s = gn[obj]();
+                    if (s) name = s->str();
+                }
                 char addr[32]; snprintf(addr, sizeof(addr), "%llX", (unsigned long long)(uintptr_t)obj);
-                j << "{\"addr\":\"" << addr << "\",\"name\":\"" << jsEsc(name) << "\"}";
+                j << "{\"addr\":\"" << addr << "\",\"name\":\"" << js_esc(name) << "\"}";
             }
         }
     } catch(...) {}
@@ -527,14 +1149,149 @@ static std::string instancesJson(const std::string& a, const std::string& ns, co
     return j.str();
 }
 
-static std::string sceneJson() {
-    AttachThread();
-    auto fm = findObjsMethod();
+static std::string find_instances_json(const std::string& type_name) {
+    attach_thread();
+    if (type_name.empty()) return "{\"instances\":[]}";
+
+    std::string clean_type = type_name;
+    if (clean_type.back() == '*') clean_type.pop_back();
+    while (!clean_type.empty() && (clean_type.back() == ' ' || clean_type.back() == '&')) clean_type.pop_back();
+
+    if (clean_type == "UnityEngine.GameObject" || clean_type == "GameObject") {
+        auto fm = find_objs_method();
+        if (!fm.IsValid()) return "{\"instances\":[]}";
+        Il2CppObject* st = sys_type_of("UnityEngine.GameObject, UnityEngine.CoreModule");
+        if (!st) st = sys_type_of("UnityEngine.GameObject, UnityEngine");
+        if (!st) st = sys_type_of("UnityEngine.GameObject");
+        if (!st) return "{\"instances\":[]}";
+        Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine","Object").GetMethod("get_name"));
+        Method<bool> ga(Class("UnityEngine","GameObject").GetMethod("get_activeSelf"));
+        std::ostringstream j;
+        j << "{\"instances\":[";
+        bool first = true;
+        try {
+            auto* arr = Method<Array<Il2CppObject*>*>(fm)(st);
+            if (arr && arr->capacity > 0) {
+                for (int i = 0; i < arr->capacity; i++) {
+                    Il2CppObject* go = arr->m_Items[i];
+                    if (!go || !is_valid_pointer(go)) continue;
+                    std::string name = "GameObject";
+                    bool active = true;
+                    if (gn.IsValid()) { auto* s = gn[go](); if (s) name = s->str(); }
+                    if (ga.IsValid()) active = ga[go]();
+                    if (!first) j << ","; first = false;
+                    char addr[32]; snprintf(addr, sizeof(addr), "%llX", (unsigned long long)(uintptr_t)go);
+                    j << "{\"addr\":\"" << addr << "\",\"name\":\"" << js_esc(name) << "\",\"active\":" << (active ? "true" : "false") << "}";
+                }
+            }
+        } catch(...) {}
+        j << "]}";
+        return j.str();
+    }
+
+    if (clean_type == "UnityEngine.Transform" || clean_type == "Transform" || clean_type == "UnityEngine.RectTransform" || clean_type == "RectTransform") {
+        auto fm = find_objs_method();
+        if (!fm.IsValid()) return "{\"instances\":[]}";
+        Il2CppObject* st = sys_type_of("UnityEngine.Transform, UnityEngine.CoreModule");
+        if (!st) st = sys_type_of("UnityEngine.Transform, UnityEngine");
+        if (!st) st = sys_type_of("UnityEngine.Transform");
+        if (!st) return "{\"instances\":[]}";
+        Method<Il2CppObject*> cg(Class("UnityEngine","Component").GetMethod("get_gameObject"));
+        Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine","Object").GetMethod("get_name"));
+        std::ostringstream j;
+        j << "{\"instances\":[";
+        bool first = true;
+        try {
+            auto* arr = Method<Array<Il2CppObject*>*>(fm)(st);
+            if (arr && arr->capacity > 0) {
+                for (int i = 0; i < arr->capacity; i++) {
+                    Il2CppObject* tr = arr->m_Items[i];
+                    if (!tr || !is_valid_pointer(tr)) continue;
+                    std::string name = "Transform";
+                    if (cg.IsValid()) {
+                        Il2CppObject* go = cg[tr]();
+                        if (go && is_valid_pointer(go) && gn.IsValid()) { auto* s = gn[go](); if (s) name = s->str() + " (Transform)"; }
+                    }
+                    if (!first) j << ","; first = false;
+                    char addr[32]; snprintf(addr, sizeof(addr), "%llX", (unsigned long long)(uintptr_t)tr);
+                    j << "{\"addr\":\"" << addr << "\",\"name\":\"" << js_esc(name) << "\",\"active\":true}";
+                }
+            }
+        } catch(...) {}
+        j << "]}";
+        return j.str();
+    }
+
+    Il2CppObject* st = sys_type_of(clean_type + ", UnityEngine.CoreModule");
+    if (!st) st = sys_type_of(clean_type + ", UnityEngine.PhysicsModule");
+    if (!st) st = sys_type_of(clean_type + ", UnityEngine.UI");
+    if (!st) st = sys_type_of(clean_type + ", UnityEngine");
+    if (!st) st = sys_type_of(clean_type + ", Assembly-CSharp");
+    if (!st) st = sys_type_of(clean_type);
+    if (!st) {
+        for (auto& img : Image::GetImages()) {
+            if (!img.IsValid()) continue;
+            for (auto& cls : img.GetClasses(false)) {
+                auto* r = cls.GetClass();
+                if (!r || !is_valid_pointer(r) || !r->name || !is_valid_pointer(r->name)) continue;
+                std::string full = (r->namespaze && is_valid_pointer(r->namespaze) && r->namespaze[0]) ? std::string(r->namespaze) + "." + r->name : r->name;
+                if (full == clean_type || std::string(r->name) == clean_type) {
+                    st = (Il2CppObject*)cls.GetMonoType();
+                    break;
+                }
+            }
+            if (st) break;
+        }
+    }
+
+    if (!st) return "{\"instances\":[]}";
+
+    auto fm = find_objs_method();
+    if (!fm.IsValid()) return "{\"instances\":[]}";
+
+    std::ostringstream j;
+    j << "{\"instances\":[";
+    bool first = true;
+    try {
+        auto* arr = Method<Array<Il2CppObject*>*>(fm)(st);
+        if (arr && arr->capacity > 0) {
+            Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine","Object").GetMethod("get_name"));
+            Method<Il2CppObject*> cg(Class("UnityEngine","Component").GetMethod("get_gameObject"));
+            for (int i = 0; i < arr->capacity; i++) {
+                Il2CppObject* obj = arr->m_Items[i];
+                if (!obj || !is_valid_pointer(obj)) continue;
+                std::string name = clean_type;
+                if (is_unity_object_instance(obj) && gn.IsValid()) {
+                    auto* s = gn[obj]();
+                    if (s) name = s->str();
+                }
+                if (cg.IsValid()) {
+                    try {
+                        Il2CppObject* go = cg[obj]();
+                        if (go && is_valid_pointer(go) && gn.IsValid()) {
+                            auto* s = gn[go]();
+                            if (s) name = s->str() + " (" + clean_type + ")";
+                        }
+                    } catch(...) {}
+                }
+                if (!first) j << ","; first = false;
+                char addr[32]; snprintf(addr, sizeof(addr), "%llX", (unsigned long long)(uintptr_t)obj);
+                j << "{\"addr\":\"" << addr << "\",\"name\":\"" << js_esc(name) << "\",\"active\":true}";
+            }
+        }
+    } catch(...) {}
+    j << "]}";
+    return j.str();
+}
+
+static std::string scene_json() {
+    attach_thread();
+    auto fm = find_objs_method();
     if (!fm.IsValid()) return "[]";
 
-    Il2CppObject* st = sysTypeOf("UnityEngine.GameObject, UnityEngine.CoreModule");
-    if (!st) st = sysTypeOf("UnityEngine.GameObject, UnityEngine");
-    if (!st) st = sysTypeOf("UnityEngine.GameObject");
+    Il2CppObject* st = sys_type_of("UnityEngine.GameObject, UnityEngine.CoreModule");
+    if (!st) st = sys_type_of("UnityEngine.GameObject, UnityEngine");
+    if (!st) st = sys_type_of("UnityEngine.GameObject");
     if (!st) return "[]";
 
     Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine","Object").GetMethod("get_name"));
@@ -551,7 +1308,7 @@ static std::string sceneJson() {
             bool first = true;
             for (int i = 0; i < arr->capacity; i++) {
                 Il2CppObject* go = arr->m_Items[i];
-                if (!go) continue;
+                if (!go || !is_valid_pointer(go)) continue;
                 std::string name = "Unknown";
                 bool active = false;
                 if (gn.IsValid()) { auto* s = gn[go](); if (s) name = s->str(); }
@@ -559,11 +1316,17 @@ static std::string sceneJson() {
                 uintptr_t par = 0;
                 if (gt.IsValid() && tp.IsValid() && cg.IsValid()) {
                     Il2CppObject* tr = gt[go]();
-                    if (tr) { Il2CppObject* pt = tp[tr](); if (pt) { Il2CppObject* pg = cg[pt](); if (pg) par = (uintptr_t)pg; } }
+                    if (tr && is_valid_pointer(tr)) {
+                        Il2CppObject* pt = tp[tr]();
+                        if (pt && is_valid_pointer(pt)) {
+                            Il2CppObject* pg = cg[pt]();
+                            if (pg && is_valid_pointer(pg)) par = (uintptr_t)pg;
+                        }
+                    }
                 }
                 if (!first) j << ",";
                 first = false;
-                j << "{\"addr\":\"" << std::hex << (uintptr_t)go << "\",\"name\":\"" << jsEsc(name) << "\",\"active\":" << (active?"true":"false") << ",\"parent\":\"" << std::hex << par << "\"}";
+                j << "{\"addr\":\"" << std::hex << (uintptr_t)go << "\",\"name\":\"" << js_esc(name) << "\",\"active\":" << (active?"true":"false") << ",\"parent\":\"" << std::hex << par << "\"}";
             }
         }
     } catch(...) {}
@@ -571,201 +1334,279 @@ static std::string sceneJson() {
     return j.str();
 }
 
-static std::string readField(const std::string& ft, Class& cls, Il2CppObject* inst, const std::string& name, MethodBase* getter, bool isStatic, bool& ok) {
+static std::string read_field(const std::string& ft, Class& cls, Il2CppObject* inst, const std::string& name, MethodBase* getter, bool is_static, bool& ok, const Il2CppType* tp = nullptr) {
     ok = false;
-    if (!inst && !isStatic) return "";
+    if (!is_static && (!inst || !is_valid_pointer(inst))) return "";
     try {
         if (ft=="System.Single"||ft=="Single"||ft=="float") {
             float v = 0;
-            if (getter) { Method<float> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<float> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<float> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<float> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.Double"||ft=="Double"||ft=="double") {
             double v = 0;
-            if (getter) { Method<double> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<double> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<double> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<double> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.Int32"||ft=="Int32"||ft=="int") {
             int v = 0;
-            if (getter) { Method<int> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<int> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.UInt32"||ft=="UInt32"||ft=="uint") {
             uint32_t v = 0;
-            if (getter) { Method<uint32_t> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<uint32_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<uint32_t> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<uint32_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.Int64"||ft=="Int64"||ft=="long") {
             int64_t v = 0;
-            if (getter) { Method<int64_t> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<int64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<int64_t> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<int64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.UInt64"||ft=="UInt64"||ft=="ulong") {
             uint64_t v = 0;
-            if (getter) { Method<uint64_t> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<uint64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<uint64_t> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<uint64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.Int16"||ft=="Int16"||ft=="short") {
             int16_t v = 0;
-            if (getter) { Method<int16_t> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<int16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<int16_t> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<int16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.UInt16"||ft=="UInt16"||ft=="ushort") {
             uint16_t v = 0;
-            if (getter) { Method<uint16_t> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<uint16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<uint16_t> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<uint16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.Byte"||ft=="Byte"||ft=="byte") {
             uint8_t v = 0;
-            if (getter) { Method<uint8_t> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<uint8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<uint8_t> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<uint8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.SByte"||ft=="SByte"||ft=="sbyte") {
             int8_t v = 0;
-            if (getter) { Method<int8_t> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<int8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<int8_t> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<int8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="System.Boolean"||ft=="Boolean"||ft=="bool") {
             bool v = false;
-            if (getter) { Method<bool> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<bool> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<bool> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<bool> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return v ? "true" : "false";
         } else if (ft=="System.String"||ft=="String"||ft=="string") {
             BNM::Structures::Mono::String* s = nullptr;
-            if (getter) { Method<BNM::Structures::Mono::String*> m(*getter); if(!isStatic) m.SetInstance(inst); s = m(); }
-            else { Field<BNM::Structures::Mono::String*> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);s=f();} }
-            ok = true; return s ? "\"" + jsEsc(s->str()) + "\"" : "\"\"";
+            if (getter) { Method<BNM::Structures::Mono::String*> m(*getter); if(!is_static) m.SetInstance(inst); s = m(); }
+            else { Field<BNM::Structures::Mono::String*> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);s=f();} }
+            ok = true; return s ? "\"" + js_esc(s->str()) + "\"" : "\"\"";
         } else if (ft=="UnityEngine.Vector3"||ft=="Vector3") {
             Vector3 v = {0,0,0};
-            if (getter) { Method<Vector3> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<Vector3> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<Vector3> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<Vector3> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return "[" + std::to_string(v.x) + "," + std::to_string(v.y) + "," + std::to_string(v.z) + "]";
         } else if (ft=="UnityEngine.Color"||ft=="Color") {
             Color c = {0,0,0,0};
-            if (getter) { Method<Color> m(*getter); if(!isStatic) m.SetInstance(inst); c = m(); }
-            else { Field<Color> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);c=f();} }
+            if (getter) { Method<Color> m(*getter); if(!is_static) m.SetInstance(inst); c = m(); }
+            else { Field<Color> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);c=f();} }
             ok = true; return "[" + std::to_string(c.r) + "," + std::to_string(c.g) + "," + std::to_string(c.b) + "," + std::to_string(c.a) + "]";
         } else if (ft=="UnityEngine.Vector2"||ft=="Vector2") {
             Vector2 v = {0,0};
-            if (getter) { Method<Vector2> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<Vector2> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<Vector2> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<Vector2> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return "[" + std::to_string(v.x) + "," + std::to_string(v.y) + "]";
         } else if (ft=="UnityEngine.Vector4"||ft=="Vector4"||ft=="UnityEngine.Quaternion"||ft=="Quaternion") {
             Vector4 v = {0,0,0,0};
-            if (getter) { Method<Vector4> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<Vector4> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<Vector4> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<Vector4> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::string("{\"x\":") + std::to_string(v.x) + ",\"y\":" + std::to_string(v.y) + ",\"z\":" + std::to_string(v.z) + ",\"w\":" + std::to_string(v.w) + "}";
         } else if (ft=="UnityEngine.LayerMask"||ft=="LayerMask") {
             int v = 0;
-            if (getter) { Method<int> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<int> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true; return std::to_string(v);
         } else if (ft=="UnityEngine.Rect"||ft=="Rect") {
             Rect v = {0,0,0,0};
-            if (getter) { Method<Rect> m(*getter); if(!isStatic) m.SetInstance(inst); v = m(); }
-            else { Field<Rect> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);v=f();} }
+            if (getter) { Method<Rect> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<Rect> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
             ok = true;
             return std::string("{\"x\":") + std::to_string(v.x) + ",\"y\":" + std::to_string(v.y) + ",\"w\":" + std::to_string(v.w) + ",\"h\":" + std::to_string(v.h) + "}";
+        } else if (ft=="UnityEngine.Vector3Int"||ft=="Vector3Int") {
+            vector3_int v = {0,0,0};
+            if (getter) { Method<vector3_int> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<vector3_int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
+            ok = true; return "[" + std::to_string(v.x) + "," + std::to_string(v.y) + "," + std::to_string(v.z) + "]";
+        } else if (ft=="UnityEngine.Vector2Int"||ft=="Vector2Int") {
+            vector2_int v = {0,0};
+            if (getter) { Method<vector2_int> m(*getter); if(!is_static) m.SetInstance(inst); v = m(); }
+            else { Field<vector2_int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);v=f();} }
+            ok = true; return "[" + std::to_string(v.x) + "," + std::to_string(v.y) + "]";
+        } else {
+            if (tp && is_valid_pointer(tp) && tp->valuetype) {
+                Class tc(tp);
+                auto* tk = tc.IsValid() ? tc.GetClass() : nullptr;
+                if (tk && tk->enumtype) {
+                    int ev = 0;
+                    if (getter) { Method<int> m(*getter); if(!is_static) m.SetInstance(inst); ev = m(); }
+                    else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);ev=f();} }
+                    ok = true;
+                    return std::to_string(ev);
+                }
+                return "";
+            }
+            Il2CppObject* obj_val = nullptr;
+            if (getter) {
+                Method<Il2CppObject*> m(*getter);
+                if (!is_static) m.SetInstance(inst);
+                obj_val = m();
+            } else {
+                Field<Il2CppObject*> f = cls.GetField(name.c_str());
+                if (f.IsValid()) {
+                    if (!is_static) f.SetInstance(inst);
+                    obj_val = f();
+                }
+            }
+            ok = true;
+            if (!obj_val || !is_valid_pointer(obj_val)) return "\"0x0\"";
+            return "\"" + js_esc(object_ref_string(obj_val)) + "\"";
         }
     } catch(...) {}
     return "";
 }
 
-static void writeField(const std::string& ft, Class& cls, Il2CppObject* inst, const std::string& name, MethodBase* setter, const std::string& v, bool isStatic = false) {
-    if (!inst && !isStatic) return;
+static void write_field(const std::string& ft, Class& cls, Il2CppObject* inst, const std::string& name, MethodBase* setter, const std::string& v, bool is_static = false) {
+    if (!is_static && (!inst || !is_valid_pointer(inst))) return;
     try {
         if (ft=="System.Single"||ft=="Single"||ft=="float") {
             float val = std::stof(v);
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<float> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<float> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="System.Double"||ft=="Double"||ft=="double") {
             double val = std::stod(v);
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<double> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<double> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="System.Int32"||ft=="Int32"||ft=="int") {
             int val = std::stoi(v);
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="System.UInt32"||ft=="UInt32"||ft=="uint") {
             uint32_t val = (uint32_t)std::stoul(v);
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<uint32_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<uint32_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="System.Int64"||ft=="Int64"||ft=="long") {
             int64_t val = std::stoll(v);
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<int64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<int64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="System.UInt64"||ft=="UInt64"||ft=="ulong") {
             uint64_t val = std::stoull(v);
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<uint64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<uint64_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="System.Int16"||ft=="Int16"||ft=="short") {
             int16_t val = (int16_t)std::stoi(v);
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<int16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<int16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="System.UInt16"||ft=="UInt16"||ft=="ushort") {
             uint16_t val = (uint16_t)std::stoul(v);
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<uint16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<uint16_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="System.Byte"||ft=="Byte"||ft=="byte") {
             uint8_t val = (uint8_t)std::stoul(v);
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<uint8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<uint8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="System.SByte"||ft=="SByte"||ft=="sbyte") {
             int8_t val = (int8_t)std::stoi(v);
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<int8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<int8_t> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="System.Boolean"||ft=="Boolean"||ft=="bool") {
             bool val = v=="true"||v=="1";
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<bool> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<bool> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="System.String"||ft=="String"||ft=="string") {
             auto* s = CreateMonoString(v.c_str());
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(s); }
-            else { Field<BNM::Structures::Mono::String*> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=s;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(s); }
+            else { Field<BNM::Structures::Mono::String*> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=s;} }
         } else if (ft=="UnityEngine.Vector3"||ft=="Vector3") {
             float x=0,y=0,z=0; sscanf(v.c_str(),"[%f,%f,%f]",&x,&y,&z); Vector3 val={x,y,z};
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<Vector3> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<Vector3> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="UnityEngine.Color"||ft=="Color") {
             float r=1,g=1,b=1,a=1; sscanf(v.c_str(),"[%f,%f,%f,%f]",&r,&g,&b,&a); Color val={r,g,b,a};
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<Color> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<Color> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="UnityEngine.Vector2"||ft=="Vector2") {
             float x=0,y=0; sscanf(v.c_str(),"[%f,%f]",&x,&y); Vector2 val={x,y};
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<Vector2> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<Vector2> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="UnityEngine.Vector4"||ft=="Vector4"||ft=="UnityEngine.Quaternion"||ft=="Quaternion") {
             float x=0,y=0,z=0,w=0;
             sscanf(v.c_str(),"{\"x\":%f,\"y\":%f,\"z\":%f,\"w\":%f}",&x,&y,&z,&w);
             Vector4 val={x,y,z,w};
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<Vector4> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<Vector4> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="UnityEngine.LayerMask"||ft=="LayerMask") {
             int val = std::stoi(v);
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
         } else if (ft=="UnityEngine.Rect"||ft=="Rect") {
             float x=0,y=0,w=0,h=0;
             sscanf(v.c_str(),"{\"x\":%f,\"y\":%f,\"w\":%f,\"h\":%f}",&x,&y,&w,&h);
             Rect val={x,y,w,h};
-            if (setter) { Method<void> m(*setter); if(!isStatic) m.SetInstance(inst); m(val); }
-            else { Field<Rect> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!isStatic)f.SetInstance(inst);f=val;} }
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<Rect> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
+        } else if (ft=="UnityEngine.Vector3Int"||ft=="Vector3Int") {
+            int x=0,y=0,z=0; sscanf(v.c_str(),"[%d,%d,%d]",&x,&y,&z); vector3_int val={x,y,z};
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<vector3_int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
+        } else if (ft=="UnityEngine.Vector2Int"||ft=="Vector2Int") {
+            int x=0,y=0; sscanf(v.c_str(),"[%d,%d]",&x,&y); vector2_int val={x,y};
+            if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+            else { Field<vector2_int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
+        } else {
+            const Il2CppType* ptp = nullptr;
+            if (setter) {
+                auto* smi = setter->GetInfo();
+                if (smi) ptp = get_param_type(smi, 0);
+            } else {
+                Field<Il2CppObject*> tf = cls.GetField(name.c_str());
+                if (tf.IsValid()) { auto* tfi = tf.GetInfo(); if (tfi) ptp = tfi->type; }
+            }
+            if (ptp && is_valid_pointer(ptp) && ptp->valuetype) {
+                Class tc(ptp);
+                auto* tk = tc.IsValid() ? tc.GetClass() : nullptr;
+                if (!tk || !tk->enumtype) return;
+                int val = std::stoi(v.empty() ? "0" : v);
+                if (setter) { Method<void> m(*setter); if(!is_static) m.SetInstance(inst); m(val); }
+                else { Field<int> f=cls.GetField(name.c_str()); if(f.IsValid()){if(!is_static)f.SetInstance(inst);f=val;} }
+                return;
+            }
+            uintptr_t ptr = (v == "null" || v.empty()) ? 0 : (uintptr_t)strtoull(v.c_str(), nullptr, 16);
+            if (ptr && !is_valid_object((Il2CppObject*)ptr)) return;
+            Il2CppObject* obj_val = (Il2CppObject*)ptr;
+            if (setter) {
+                Method<void> m(*setter);
+                if (!is_static) m.SetInstance(inst);
+                m(obj_val);
+            } else {
+                Field<Il2CppObject*> f = cls.GetField(name.c_str());
+                if (f.IsValid()) {
+                    if (!is_static) f.SetInstance(inst);
+                    f = obj_val;
+                }
+            }
         }
     } catch(...) {}
 }
 
-static std::string goInfoJson(uintptr_t addr) {
-    AttachThread();
-    if (!addr) return "{}";
+static std::string go_info_json(uintptr_t addr) {
+    attach_thread();
+    if (!addr || !is_valid_pointer((void*)addr)) return "{\"stale\":true}";
     Il2CppObject* go = (Il2CppObject*)addr;
-    if (!isObjectAlive(go)) return "{\"stale\":true}";
+    if (!is_object_alive(go)) return "{\"stale\":true}";
     std::string name = "Unknown";
     bool active = false;
 
-    Class goCls("UnityEngine","GameObject");
+    Class go_cls("UnityEngine","GameObject");
     Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine","Object").GetMethod("get_name"));
-    Method<bool> ga(goCls.GetMethod("get_activeSelf"));
-    Method<Il2CppObject*> gt(goCls.GetMethod("get_transform"));
+    Method<bool> ga(go_cls.GetMethod("get_activeSelf"));
+    Method<Il2CppObject*> gt(go_cls.GetMethod("get_transform"));
 
     try {
         if (gn.IsValid()) { auto* s=gn[go](); if(s) name=s->str(); }
@@ -773,11 +1614,11 @@ static std::string goInfoJson(uintptr_t addr) {
     } catch(...) {}
 
     std::ostringstream j;
-    j << "{\"addr\":\"" << std::hex << addr << "\",\"name\":\"" << jsEsc(name) << "\",\"active\":" << (active?"true":"false") << ",\"transform\":{";
+    j << "{\"addr\":\"" << std::hex << addr << "\",\"name\":\"" << js_esc(name) << "\",\"active\":" << (active?"true":"false") << ",\"transform\":{";
     try {
         if (gt.IsValid()) {
             Il2CppObject* tr = gt[go]();
-            if (tr) {
+            if (tr && is_valid_pointer(tr)) {
                 Method<Vector3> gp(Class("UnityEngine","Transform").GetMethod("get_localPosition"));
                 Method<Vector3> gr(Class("UnityEngine","Transform").GetMethod("get_localEulerAngles"));
                 Method<Vector3> gs(Class("UnityEngine","Transform").GetMethod("get_localScale"));
@@ -791,106 +1632,98 @@ static std::string goInfoJson(uintptr_t addr) {
     j << "},\"scripts\":[";
 
     try {
-        Class componentCls("UnityEngine", "Component");
-        Il2CppObject* compReflType = nullptr;
-        if (componentCls.IsValid()) compReflType = (Il2CppObject*)componentCls.GetMonoType();
-        if (!compReflType) compReflType = sysTypeOf("UnityEngine.Component, UnityEngine.CoreModule");
-        if (!compReflType) compReflType = sysTypeOf("UnityEngine.Component");
+        Class component_cls("UnityEngine", "Component");
+        Il2CppObject* comp_refl_type = nullptr;
+        if (component_cls.IsValid()) comp_refl_type = (Il2CppObject*)component_cls.GetMonoType();
+        if (!comp_refl_type) comp_refl_type = sys_type_of("UnityEngine.Component, UnityEngine.CoreModule");
+        if (!comp_refl_type) comp_refl_type = sys_type_of("UnityEngine.Component");
         Array<Il2CppObject*>* comps = nullptr;
-        if (!comps && compReflType) {
-            for (auto& mt : goCls.GetMethods(true)) {
+        if (!comps && comp_refl_type) {
+            for (auto& mt : go_cls.GetMethods(true)) {
                 auto* mi = mt.GetInfo();
-                if (!mi || !mi->name || mi->is_generic) continue;
+                if (!mi || !is_valid_pointer(mi) || !mi->name || !is_valid_pointer(mi->name) || mi->is_generic) continue;
                 if (strcmp(mi->name, "GetComponents") != 0) continue;
                 if (mi->parameters_count == 1) {
                     try {
                         Method<Array<Il2CppObject*>*> m(mt);
-                        comps = m[go](compReflType);
-                    } catch(...) { LOGE("goInfoJson: GetComponents(Type) threw"); }
+                        comps = m[go](comp_refl_type);
+                    } catch(...) {}
                     if (comps && comps->capacity > 0) break;
                     comps = nullptr;
                 }
             }
         }
-        if (!comps && compReflType) {
-            for (auto& mt : goCls.GetMethods(true)) {
+        if (!comps && comp_refl_type) {
+            for (auto& mt : go_cls.GetMethods(true)) {
                 auto* mi = mt.GetInfo();
-                if (!mi || !mi->name) continue;
+                if (!mi || !is_valid_pointer(mi) || !mi->name || !is_valid_pointer(mi->name)) continue;
                 if (strcmp(mi->name, "GetComponentsInternal") != 0) continue;
-                LOGD("goInfoJson: found GetComponentsInternal with %d params", mi->parameters_count);
                 if (mi->parameters_count >= 2) {
                     try {
                         if (mi->parameters_count == 6) {
                             Method<Array<Il2CppObject*>*> m(mt);
-                            comps = m[go](compReflType, true, false, true, false, nullptr);
-                            LOGD("goInfoJson: GetComponentsInternal(6) returned %p, count=%d", comps, comps ? (int)comps->capacity : -1);
+                            comps = m[go](comp_refl_type, true, false, true, false, nullptr);
                         } else if (mi->parameters_count == 5) {
                             Method<Array<Il2CppObject*>*> m(mt);
-                            comps = m[go](compReflType, true, false, true, false);
-                            LOGD("goInfoJson: GetComponentsInternal(5) returned %p, count=%d", comps, comps ? (int)comps->capacity : -1);
+                            comps = m[go](comp_refl_type, true, false, true, false);
                         } else if (mi->parameters_count == 4) {
                             Method<Array<Il2CppObject*>*> m(mt);
-                            comps = m[go](compReflType, false, true, false);
-                            LOGD("goInfoJson: GetComponentsInternal(4) returned %p, count=%d", comps, comps ? (int)comps->capacity : -1);
+                            comps = m[go](comp_refl_type, false, true, false);
                         }
-                    } catch(...) { LOGE("goInfoJson: GetComponentsInternal threw"); }
+                    } catch(...) {}
                     if (comps && comps->capacity > 0) break;
                     comps = nullptr;
                 }
             }
         }
         if (!comps) {
-            LOGD("goInfoJson: falling back to FindObjectsOfType");
-            Class monoCls("UnityEngine", "MonoBehaviour");
-            Il2CppObject* monoType = nullptr;
-            if (monoCls.IsValid()) monoType = (Il2CppObject*)monoCls.GetMonoType();
-            if (!monoType) monoType = sysTypeOf("UnityEngine.MonoBehaviour, UnityEngine.CoreModule");
-            if (!monoType) monoType = sysTypeOf("UnityEngine.MonoBehaviour");
+            Class mono_cls("UnityEngine", "MonoBehaviour");
+            Il2CppObject* mono_type = nullptr;
+            if (mono_cls.IsValid()) mono_type = (Il2CppObject*)mono_cls.GetMonoType();
+            if (!mono_type) mono_type = sys_type_of("UnityEngine.MonoBehaviour, UnityEngine.CoreModule");
+            if (!mono_type) mono_type = sys_type_of("UnityEngine.MonoBehaviour");
 
-            auto fom = findObjsMethod();
-            Method<Il2CppObject*> compGetGO(Class("UnityEngine","Component").GetMethod("get_gameObject"));
+            auto fom = find_objs_method();
+            Method<Il2CppObject*> comp_get_go(Class("UnityEngine","Component").GetMethod("get_gameObject"));
 
-            if (fom.IsValid() && monoType && compGetGO.IsValid()) {
-                auto* allMonos = Method<Array<Il2CppObject*>*>(fom)(monoType);
-                LOGD("goInfoJson: FindObjectsOfType(MonoBehaviour) count=%d", allMonos ? (int)allMonos->capacity : -1);
-                if (allMonos && allMonos->capacity > 0) {
-                    for (int i = 0; i < allMonos->capacity; i++) {
-                        Il2CppObject* c = allMonos->m_Items[i];
-                        if (!c) continue;
+            if (fom.IsValid() && mono_type && comp_get_go.IsValid()) {
+                auto* all_monos = Method<Array<Il2CppObject*>*>(fom)(mono_type);
+                if (all_monos && all_monos->capacity > 0) {
+                    for (int i = 0; i < all_monos->capacity; i++) {
+                        Il2CppObject* c = all_monos->m_Items[i];
+                        if (!c || !is_valid_pointer(c)) continue;
                         try {
-                            Il2CppObject* cgo = compGetGO[c]();
-                            if ((uintptr_t)cgo != addr) allMonos->m_Items[i] = nullptr;
-                        } catch(...) { allMonos->m_Items[i] = nullptr; }
+                            Il2CppObject* cgo = comp_get_go[c]();
+                            if ((uintptr_t)cgo != addr) all_monos->m_Items[i] = nullptr;
+                        } catch(...) { all_monos->m_Items[i] = nullptr; }
                     }
-                    comps = allMonos;
+                    comps = all_monos;
                 }
             }
         }
 
-        LOGD("goInfoJson: final comps=%p, count=%d", comps, comps ? (int)comps->capacity : -1);
-
-        static const char* kStopAtComponent[] = {
+        static const char* k_stop_at_component[] = {
                 "Component", "Object", nullptr
         };
-        static const char* kSkipProps[] = {
+        static const char* k_skip_props[] = {
                 "isActiveAndEnabled", "transform", "gameObject", "tag", "name",
                 "hideFlags", "rigidbody", "rigidbody2D", "camera", "light",
                 "animation", "constantForce", "renderer", "audio", "networkView",
                 "collider", "collider2D", "hingeJoint", "particleSystem", nullptr
         };
 
-        auto isStopClass = [](const char* n) -> bool {
-            for (auto** s = kStopAtComponent; *s; s++)
+        auto is_stop_class = [](const char* n) -> bool {
+            for (auto** s = k_stop_at_component; *s; s++)
                 if (strcmp(n, *s) == 0) return true;
             return false;
         };
-        auto isSkipProp = [](const char* n) -> bool {
-            for (auto** s = kSkipProps; *s; s++)
+        auto is_skip_prop = [](const char* n) -> bool {
+            for (auto** s = k_skip_props; *s; s++)
                 if (strcmp(n, *s) == 0) return true;
             return false;
         };
 
-        auto isKnownBuiltinBase = [](const char* n) -> bool {
+        auto is_known_builtin_base = [](const char* n) -> bool {
             static const char* builtins[] = {
                     "MonoBehaviour", "Behaviour",
                     "Collider", "Collider2D",
@@ -923,85 +1756,83 @@ static std::string goInfoJson(uintptr_t addr) {
         };
 
         if (comps && comps->capacity > 0) {
-            bool firstScript = true;
+            bool first_script = true;
 
             for (int i = 0; i < comps->capacity; i++) {
                 Il2CppObject* comp = comps->m_Items[i];
-                if (!comp || !comp->klass) continue;
+                if (!comp || !is_valid_pointer(comp) || !comp->klass || !is_valid_pointer(comp->klass)) continue;
 
                 auto* klass = comp->klass;
 
-                bool isSupported = false;
-                std::string compCategory = "script";
-                for (auto* cur = klass; cur; cur = cur->parent) {
-                    if (!cur->name) continue;
-                    if (strcmp(cur->name, "MonoBehaviour") == 0) { isSupported = true; compCategory = "script"; break; }
-                    if (isKnownBuiltinBase(cur->name) && strcmp(cur->name, "MonoBehaviour") != 0 && strcmp(cur->name, "Behaviour") != 0) {
-                        isSupported = true; compCategory = "builtin"; break;
+                bool is_supported = false;
+                std::string comp_category = "script";
+                for (auto* cur = klass; cur && is_valid_pointer(cur); cur = cur->parent) {
+                    if (!cur->name || !is_valid_pointer(cur->name)) continue;
+                    if (strcmp(cur->name, "MonoBehaviour") == 0) { is_supported = true; comp_category = "script"; break; }
+                    if (is_known_builtin_base(cur->name) && strcmp(cur->name, "MonoBehaviour") != 0 && strcmp(cur->name, "Behaviour") != 0) {
+                        is_supported = true; comp_category = "builtin"; break;
                     }
                     if (strcmp(cur->name, "Component") == 0 || strcmp(cur->name, "Object") == 0) break;
                 }
-                if (!isSupported) continue;
+                if (!is_supported) continue;
 
-                std::string compName = klass->name ? klass->name : "Unknown";
-                std::string compNs = klass->namespaze ? klass->namespaze : "";
-                char compAddr[32]; snprintf(compAddr, sizeof(compAddr), "%llX", (unsigned long long)(uintptr_t)comp);
-                std::string compAsm = (klass->image && klass->image->name) ? klass->image->name : "";
+                std::string comp_name = (klass->name && is_valid_pointer(klass->name)) ? klass->name : "Unknown";
+                std::string comp_ns = (klass->namespaze && is_valid_pointer(klass->namespaze)) ? klass->namespaze : "";
+                char comp_addr[32]; snprintf(comp_addr, sizeof(comp_addr), "%llX", (unsigned long long)(uintptr_t)comp);
+                std::string comp_asm = (klass->image && is_valid_pointer(klass->image) && klass->image->name && is_valid_pointer(klass->image->name)) ? klass->image->name : "";
 
-                bool hasEnabledProp = false;
+                bool has_enabled_prop = false;
                 bool enabled = false;
-                for (auto* cur = klass; cur; cur = cur->parent) {
-                    if (!cur->name) continue;
+                for (auto* cur = klass; cur && is_valid_pointer(cur); cur = cur->parent) {
+                    if (!cur->name || !is_valid_pointer(cur->name)) continue;
                     if (strcmp(cur->name, "Behaviour") == 0 || strcmp(cur->name, "Renderer") == 0 ||
                         strcmp(cur->name, "Collider") == 0 || strcmp(cur->name, "Collider2D") == 0) {
-                        hasEnabledProp = true; break;
+                        has_enabled_prop = true; break;
                     }
                     if (strcmp(cur->name, "Component") == 0) break;
                 }
-                if (hasEnabledProp) {
-                    Method<bool> getEnabled(Class("UnityEngine","Behaviour").GetMethod("get_enabled"));
-                    if (!getEnabled.IsValid()) {
-                        Class compClsCheck(klass);
-                        auto ep = compClsCheck.GetProperty("enabled");
+                if (has_enabled_prop) {
+                    Method<bool> get_enabled(Class("UnityEngine","Behaviour").GetMethod("get_enabled"));
+                    if (!get_enabled.IsValid()) {
+                        Class comp_cls_check(klass);
+                        auto ep = comp_cls_check.GetProperty("enabled");
                         if (ep.IsValid() && ep._data && ep._data->get) {
                             MethodBase egetter(ep._data->get);
                             Method<bool> m(egetter); m.SetInstance(comp);
                             try { enabled = m(); } catch(...) {}
                         }
                     } else {
-                        try { enabled = getEnabled[comp](); } catch(...) {}
+                        try { enabled = get_enabled[comp](); } catch(...) {}
                     }
                 }
 
-                if (!firstScript) j << ",";
-                firstScript = false;
-                j << "{\"addr\":\"" << compAddr << "\",\"name\":\"" << jsEsc(compName) << "\",\"ns\":\"" << jsEsc(compNs) << "\",\"asm\":\"" << jsEsc(compAsm) << "\",\"category\":\"" << compCategory << "\",\"enabled\":" << (enabled?"true":"false") << ",\"fields\":[";
-
-                LOGD("goInfoJson: found component '%s' category='%s' at %s", compName.c_str(), compCategory.c_str(), compAddr);
+                if (!first_script) j << ",";
+                first_script = false;
+                j << "{\"addr\":\"" << comp_addr << "\",\"name\":\"" << js_esc(comp_name) << "\",\"ns\":\"" << js_esc(comp_ns) << "\",\"asm\":\"" << js_esc(comp_asm) << "\",\"category\":\"" << comp_category << "\",\"enabled\":" << (enabled?"true":"false") << ",\"fields\":[";
 
                 try {
-                    Class compCls(klass);
-                    bool firstF = true;
+                    Class comp_cls(klass);
+                    bool first_f = true;
                     std::vector<std::string> seen;
 
-                    for (Class cur = compCls; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
+                    for (Class cur = comp_cls; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
                         auto* cn_ = cur.GetClass()->name;
-                        if (!cn_) break;
-                        if (isStopClass(cn_)) break;
+                        if (!cn_ || !is_valid_pointer(cn_)) break;
+                        if (is_stop_class(cn_)) break;
 
                         for (auto& f : cur.GetFields(false)) {
                             try {
                                 auto* fi = f.GetInfo();
-                                if (!fi || !fi->type || (fi->type->attrs & 0x10)) continue;
+                                if (!fi || !is_valid_pointer(fi) || !fi->type || !is_valid_pointer(fi->type) || (fi->type->attrs & 0x10)) continue;
                                 std::string fn = fi->name;
                                 bool dup = false; for (auto& s : seen) if (s==fn) dup=true;
                                 if (dup) continue; seen.push_back(fn);
-                                std::string ft = typeName(fi->type);
+                                std::string ft = type_name(fi->type);
                                 bool ok = false;
-                                std::string vs = readField(ft, cur, comp, fn, nullptr, false, ok);
+                                std::string vs = read_field(ft, cur, comp, fn, nullptr, false, ok, fi->type);
                                 if (ok) {
-                                    if (!firstF) j << ","; firstF = false;
-                                    j << "{\"name\":\"" << jsEsc(fn) << "\",\"type\":\"" << jsEsc(ft) << "\",\"val\":" << vs << ",\"isProp\":false,\"canWrite\":true}";
+                                    if (!first_f) j << ","; first_f = false;
+                                    j << "{\"name\":\"" << js_esc(fn) << "\",\"type\":\"" << js_esc(ft) << "\",\"val\":" << vs << ",\"isProp\":false,\"canWrite\":true}";
                                 }
                             } catch(...) {}
                         }
@@ -1009,18 +1840,18 @@ static std::string goInfoJson(uintptr_t addr) {
                         for (auto& p : cur.GetProperties(false)) {
                             try {
                                 auto* pi = p._data;
-                                if (!pi || !pi->get) continue;
+                                if (!pi || !is_valid_pointer(pi) || !pi->get) continue;
                                 std::string pn = pi->name;
-                                if (isSkipProp(pn.c_str())) continue;
+                                if (is_skip_prop(pn.c_str())) continue;
                                 bool dup = false; for (auto& s : seen) if (s==pn) dup=true;
                                 if (dup) continue; seen.push_back(pn);
-                                std::string pt = typeName(pi->get->return_type);
+                                std::string pt = (pi->get->return_type && is_valid_pointer(pi->get->return_type)) ? type_name(pi->get->return_type) : "?";
                                 bool ok = false;
                                 MethodBase getter(pi->get);
-                                std::string vs = readField(pt, cur, comp, pn, &getter, false, ok);
+                                std::string vs = read_field(pt, cur, comp, pn, &getter, false, ok, pi->get->return_type);
                                 if (ok) {
-                                    if (!firstF) j << ","; firstF = false;
-                                    j << "{\"name\":\"" << jsEsc(pn) << "\",\"type\":\"" << jsEsc(pt) << "\",\"val\":" << vs << ",\"isProp\":true,\"canWrite\":" << (pi->set?"true":"false") << "}";
+                                    if (!first_f) j << ","; first_f = false;
+                                    j << "{\"name\":\"" << js_esc(pn) << "\",\"type\":\"" << js_esc(pt) << "\",\"val\":" << vs << ",\"isProp\":true,\"canWrite\":" << (pi->set?"true":"false") << "}";
                                 }
                             } catch(...) {}
                         }
@@ -1029,198 +1860,226 @@ static std::string goInfoJson(uintptr_t addr) {
                 j << "]}";
             }
         }
-    } catch(...) {
-        LOGE("goInfoJson: exception in script enumeration");
-    }
+    } catch(...) {}
     j << "]}";
     return j.str();
 }
 
-static void applyLoopEntry(const std::shared_ptr<LoopEntry>& e) {
+static void apply_loop_entry(const std::shared_ptr<loop_entry>& e) {
     try {
         uintptr_t addr = (uintptr_t)strtoull(e->addr.c_str(), nullptr, 16);
-        if (!addr) return;
-        Il2CppObject* obj = resolveComponentByAddr(addr);
+        if (!addr || !is_valid_pointer((void*)addr)) return;
+        Il2CppObject* obj = resolve_component_by_addr(addr);
         if (!obj) { e->active = false; return; }
         for (Class cur(e->ns.c_str(), e->cls.c_str(), Image(e->asm_.c_str())); cur.IsValid(); cur = cur.GetParent()) {
-            if (e->isProp) {
+            if (e->is_prop) {
                 auto p = cur.GetProperty(e->name.c_str());
                 if (p.IsValid() && p._data && p._data->set) {
                     MethodBase s(p._data->set);
-                    writeField(e->ftype, cur, obj, e->name, &s, e->val);
+                    write_field(e->ftype, cur, obj, e->name, &s, e->val);
                     return;
                 }
             } else {
                 auto f = cur.GetField(e->name.c_str());
-                if (f.IsValid()) { writeField(e->ftype, cur, obj, e->name, nullptr, e->val); return; }
+                if (f.IsValid()) { write_field(e->ftype, cur, obj, e->name, nullptr, e->val); return; }
             }
         }
     } catch(...) {}
 }
 
-static std::string loopListJson() {
-    std::lock_guard<std::mutex> lk(g_loopMtx);
+static std::string loop_list_json() {
+    std::lock_guard<std::mutex> lk(g_loop_mtx);
     std::ostringstream j;
     j << "[";
     bool first = true;
     for (auto& kv : g_loops) {
         if (!first) j << ","; first = false;
         auto& e = kv.second;
-        j << "{\"id\":\"" << jsEsc(kv.first) << "\",\"cls\":\"" << jsEsc(e->cls) << "\",\"name\":\"" << jsEsc(e->name) << "\",\"val\":\"" << jsEsc(e->val) << "\",\"interval\":" << e->intervalMs << ",\"active\":" << (e->active?"true":"false") << "}";
+        j << "{\"id\":\"" << js_esc(kv.first) << "\",\"cls\":\"" << js_esc(e->cls) << "\",\"name\":\"" << js_esc(e->name) << "\",\"val\":\"" << js_esc(e->val) << "\",\"interval\":" << e->interval_ms << ",\"active\":" << (e->active?"true":"false") << "}";
     }
     j << "]";
     return j.str();
 }
 
 #define MAX_CATCHERS 64
-static std::shared_ptr<CatcherEntry>* g_catcherSlots[MAX_CATCHERS] = {};
-static int g_catcherSlotCount = 0;
-static std::mutex g_catcherSlotMtx;
-static void (*g_catcherOrigPtrs[MAX_CATCHERS])(Il2CppObject*) = {};
+static std::shared_ptr<catcher_entry>* g_catcher_slots[MAX_CATCHERS] = {};
+static int g_catcher_slot_count = 0;
+static std::mutex g_catcher_slot_mtx;
+static void (*g_catcher_orig_ptrs[MAX_CATCHERS])(Il2CppObject*) = {};
 
 template<int N>
-static void catcherHook(Il2CppObject* self) {
-    std::shared_ptr<CatcherEntry>* slot = g_catcherSlots[N];
+static void catcher_hook(Il2CppObject* self) {
+    std::shared_ptr<catcher_entry>* slot = g_catcher_slots[N];
     if (slot && *slot && (*slot)->active) {
-        CatcherCall call;
-        call.ts = nowSeconds();
+        catcher_call call;
+        call.ts = now_seconds();
         char buf[32]; snprintf(buf, sizeof(buf), "0x%llX", (unsigned long long)(uintptr_t)self);
         call.instance = buf;
-        if (self && self->klass) {
-            try {
-                Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine","Object").GetMethod("get_name"));
-                if (gn.IsValid()) { auto* s = gn[self](); if (s) call.instance += " (" + s->str() + ")"; }
-            } catch(...) {}
+        if (self && is_valid_pointer(self) && self->klass && is_valid_pointer(self->klass)) {
+            if (is_unity_object_instance(self)) {
+                try {
+                    Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine","Object").GetMethod("get_name"));
+                    if (gn.IsValid()) { auto* s = gn[self](); if (s) call.instance += " (" + s->str() + ")"; }
+                } catch(...) {}
+            }
         }
-        std::lock_guard<std::mutex> lk((*slot)->callsMtx);
-        if ((*slot)->calls.size() >= CatcherEntry::MAX_CALLS) (*slot)->calls.erase((*slot)->calls.begin());
+        std::lock_guard<std::mutex> lk((*slot)->calls_mtx);
+        if ((*slot)->calls.size() >= catcher_entry::max_calls) (*slot)->calls.erase((*slot)->calls.begin());
         (*slot)->calls.push_back(std::move(call));
     }
-    if (g_catcherOrigPtrs[N]) g_catcherOrigPtrs[N](self);
+    if (g_catcher_orig_ptrs[N]) g_catcher_orig_ptrs[N](self);
 }
 
 typedef void(*CatcherHookFn)(Il2CppObject*);
-static CatcherHookFn g_catcherHookFns[MAX_CATCHERS] = {
-        catcherHook<0>,catcherHook<1>,catcherHook<2>,catcherHook<3>,catcherHook<4>,
-        catcherHook<5>,catcherHook<6>,catcherHook<7>,catcherHook<8>,catcherHook<9>,
-        catcherHook<10>,catcherHook<11>,catcherHook<12>,catcherHook<13>,catcherHook<14>,
-        catcherHook<15>,catcherHook<16>,catcherHook<17>,catcherHook<18>,catcherHook<19>,
-        catcherHook<20>,catcherHook<21>,catcherHook<22>,catcherHook<23>,catcherHook<24>,
-        catcherHook<25>,catcherHook<26>,catcherHook<27>,catcherHook<28>,catcherHook<29>,
-        catcherHook<30>,catcherHook<31>,catcherHook<32>,catcherHook<33>,catcherHook<34>,
-        catcherHook<35>,catcherHook<36>,catcherHook<37>,catcherHook<38>,catcherHook<39>,
-        catcherHook<40>,catcherHook<41>,catcherHook<42>,catcherHook<43>,catcherHook<44>,
-        catcherHook<45>,catcherHook<46>,catcherHook<47>,catcherHook<48>,catcherHook<49>,
-        catcherHook<50>,catcherHook<51>,catcherHook<52>,catcherHook<53>,catcherHook<54>,
-        catcherHook<55>,catcherHook<56>,catcherHook<57>,catcherHook<58>,catcherHook<59>,
-        catcherHook<60>,catcherHook<61>,catcherHook<62>,catcherHook<63>
+static CatcherHookFn g_catcher_hook_fns[MAX_CATCHERS] = {
+        catcher_hook<0>,catcher_hook<1>,catcher_hook<2>,catcher_hook<3>,catcher_hook<4>,
+        catcher_hook<5>,catcher_hook<6>,catcher_hook<7>,catcher_hook<8>,catcher_hook<9>,
+        catcher_hook<10>,catcher_hook<11>,catcher_hook<12>,catcher_hook<13>,catcher_hook<14>,
+        catcher_hook<15>,catcher_hook<16>,catcher_hook<17>,catcher_hook<18>,catcher_hook<19>,
+        catcher_hook<20>,catcher_hook<21>,catcher_hook<22>,catcher_hook<23>,catcher_hook<24>,
+        catcher_hook<25>,catcher_hook<26>,catcher_hook<27>,catcher_hook<28>,catcher_hook<29>,
+        catcher_hook<30>,catcher_hook<31>,catcher_hook<32>,catcher_hook<33>,catcher_hook<34>,
+        catcher_hook<35>,catcher_hook<36>,catcher_hook<37>,catcher_hook<38>,catcher_hook<39>,
+        catcher_hook<40>,catcher_hook<41>,catcher_hook<42>,catcher_hook<43>,catcher_hook<44>,
+        catcher_hook<45>,catcher_hook<46>,catcher_hook<47>,catcher_hook<48>,catcher_hook<49>,
+        catcher_hook<50>,catcher_hook<51>,catcher_hook<52>,catcher_hook<53>,catcher_hook<54>,
+        catcher_hook<55>,catcher_hook<56>,catcher_hook<57>,catcher_hook<58>,catcher_hook<59>,
+        catcher_hook<60>,catcher_hook<61>,catcher_hook<62>,catcher_hook<63>
 };
 
-static void startServer() {
+static void start_server() {
     httplib::Server svr;
 
     svr.Get("/",[](const httplib::Request&, httplib::Response& res) {
+        attach_thread();
         int n = 0;
         for (auto& img : Image::GetImages()) if (img.IsValid()) n++;
-        res.set_content(GetExplorerHTML(n), "text/html");
+        res.set_content(get_explorer_html(n), "text/html");
     });
 
     svr.Get("/api/assemblies",[](const httplib::Request&, httplib::Response& res) {
-        res.set_content(assembliesJson(), "application/json");
+        res.set_content(assemblies_json(), "application/json");
     });
 
     svr.Get("/api/classes",[](const httplib::Request& req, httplib::Response& res) {
-        res.set_content(classesJson(req.get_param_value("a")), "application/json");
+        res.set_content(classes_json(req.get_param_value("a")), "application/json");
     });
 
     svr.Get("/api/allclasses",[](const httplib::Request&, httplib::Response& res) {
-        res.set_content(allClassesJson(), "application/json");
+        res.set_content(all_classes_json(), "application/json");
     });
 
     svr.Get("/api/class",[](const httplib::Request& req, httplib::Response& res) {
-        res.set_content(classDetailJson(req.get_param_value("a"), req.get_param_value("ns"), req.get_param_value("n")), "application/json");
+        res.set_content(class_detail_json(req.get_param_value("a"), req.get_param_value("ns"), req.get_param_value("n")), "application/json");
     });
 
     svr.Get("/api/instances",[](const httplib::Request& req, httplib::Response& res) {
-        res.set_content(instancesJson(req.get_param_value("a"), req.get_param_value("ns"), req.get_param_value("n")), "application/json");
+        res.set_content(instances_json(req.get_param_value("a"), req.get_param_value("ns"), req.get_param_value("n")), "application/json");
+    });
+
+    svr.Get("/api/find_instances",[](const httplib::Request& req, httplib::Response& res) {
+        std::string t = req.has_param("type") ? req.get_param_value("type") : "";
+        res.set_content(find_instances_json(t), "application/json");
+    });
+
+    svr.Get("/api/collection",[](const httplib::Request& req, httplib::Response& res) {
+        std::string s = req.get_param_value("addr");
+        res.set_content(s.empty() ? "{\"ok\":false}" : collection_json((uintptr_t)strtoull(s.c_str(), nullptr, 16)), "application/json");
+    });
+
+    svr.Get("/api/object/info",[](const httplib::Request& req, httplib::Response& res) {
+        std::string s = req.get_param_value("addr");
+        res.set_content(s.empty() ? "{\"ok\":false}" : object_info_json((uintptr_t)strtoull(s.c_str(), nullptr, 16)), "application/json");
     });
 
     svr.Get("/api/scene",[](const httplib::Request&, httplib::Response& res) {
-        res.set_content(sceneJson(), "application/json");
+        res.set_content(scene_json(), "application/json");
     });
 
     svr.Get("/api/scene/inspect",[](const httplib::Request& req, httplib::Response& res) {
         auto s = req.get_param_value("addr");
-        res.set_content(s.empty() ? "{}" : goInfoJson((uintptr_t)strtoull(s.c_str(), nullptr, 16)), "application/json");
+        res.set_content(s.empty() ? "{}" : go_info_json((uintptr_t)strtoull(s.c_str(), nullptr, 16)), "application/json");
     });
 
     svr.Get("/api/controller/inspect",[](const httplib::Request& req, httplib::Response& res) {
-        AttachThread();
+        attach_thread();
         uintptr_t addr = (uintptr_t)strtoull(req.get_param_value("addr").c_str(), nullptr, 16);
         std::string a = req.get_param_value("asm"), ns = req.get_param_value("ns"), cn = req.get_param_value("cls");
 
-        Class startCls(ns.c_str(), cn.c_str(), Image(a.c_str()));
-        if (!startCls.IsValid()) { res.set_content("{}", "application/json"); return; }
+        if (cn.empty()) { res.set_content("{}", "application/json"); return; }
+        Class start_cls = a.empty() ? Class(ns.c_str(), cn.c_str()) : Class(ns.c_str(), cn.c_str(), Image(a.c_str()));
+        if (!start_cls.IsValid()) {
+            for (auto& img : Image::GetImages()) {
+                if (!img.IsValid()) continue;
+                Class try_c(ns.c_str(), cn.c_str(), img);
+                if (try_c.IsValid()) { start_cls = try_c; break; }
+            }
+        }
+        if (!start_cls.IsValid()) { res.set_content("{}", "application/json"); return; }
 
         std::ostringstream j;
-        j << "{\"addr\":\"" << std::hex << addr << "\",\"name\":\"" << jsEsc(cn) << "\",\"fields\":[";
+        j << "{\"addr\":\"" << std::hex << addr << "\",\"name\":\"" << js_esc(cn) << "\",\"fields\":[";
 
-        bool firstF = true;
+        bool first_f = true;
         std::vector<std::string> seen;
 
-        for (Class cur = startCls; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
+        for (Class cur = start_cls; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
             auto* cn_ = cur.GetClass()->name;
-            if (!cn_) break;
+            if (!cn_ || !is_valid_pointer(cn_)) break;
             if (strcmp(cn_, "Object") == 0 && cur.GetClass()->namespaze && strcmp(cur.GetClass()->namespaze, "System") == 0) break;
 
             for (auto& f : cur.GetFields(false)) {
                 try {
                     auto* fi = f.GetInfo();
-                    if (!fi || !fi->type) continue;
-                    bool fStatic = (fi->type->attrs & 0x10) != 0;
-                    if (!fStatic && !addr) continue;
+                    if (!fi || !is_valid_pointer(fi) || !fi->type || !is_valid_pointer(fi->type)) continue;
+                    bool f_static = (fi->type->attrs & 0x10) != 0;
+                    if (!f_static && (!addr || !is_valid_pointer((void*)addr))) continue;
                     std::string fn = fi->name;
                     bool dup = false; for (auto& s : seen) if (s==fn) dup=true;
                     if (dup) continue; seen.push_back(fn);
-                    std::string ft = typeName(fi->type);
+                    std::string ft = type_name(fi->type);
                     bool ok = false;
-                    std::string vs = readField(ft, cur, fStatic ? nullptr : (Il2CppObject*)addr, fn, nullptr, fStatic, ok);
-                    if (ok) { if (!firstF) j << ","; firstF = false; j << "{\"name\":\"" << jsEsc(fn) << "\",\"type\":\"" << ft << "\",\"val\":" << vs << ",\"isProp\":false,\"canWrite\":true,\"static\":" << (fStatic?"true":"false") << "}"; }
+                    std::string vs = read_field(ft, cur, f_static ? nullptr : (Il2CppObject*)addr, fn, nullptr, f_static, ok, fi->type);
+                    if (ok) { if (!first_f) j << ","; first_f = false; j << "{\"name\":\"" << js_esc(fn) << "\",\"type\":\"" << ft << "\",\"val\":" << vs << ",\"isProp\":false,\"canWrite\":true,\"static\":" << (f_static?"true":"false") << "}"; }
                 } catch(...) {}
             }
 
             for (auto& p : cur.GetProperties(false)) {
                 try {
                     auto* pi = p._data;
-                    if (!pi || !pi->get) continue;
-                    bool pStatic = (pi->get->flags & 0x10) != 0;
-                    if (!pStatic && !addr) continue;
+                    if (!pi || !is_valid_pointer(pi) || !pi->get) continue;
+                    bool p_static = (pi->get->flags & 0x10) != 0;
+                    if (!p_static && (!addr || !is_valid_pointer((void*)addr))) continue;
                     std::string pn = pi->name;
                     bool dup = false; for (auto& s : seen) if (s==pn) dup=true;
                     if (dup) continue; seen.push_back(pn);
-                    std::string pt = typeName(pi->get->return_type);
+                    std::string pt = (pi->get->return_type && is_valid_pointer(pi->get->return_type)) ? type_name(pi->get->return_type) : "?";
                     bool ok = false;
                     MethodBase getter(pi->get);
-                    std::string vs = readField(pt, cur, pStatic ? nullptr : (Il2CppObject*)addr, pn, &getter, pStatic, ok);
-                    if (ok) { if (!firstF) j << ","; firstF = false; j << "{\"name\":\"" << jsEsc(pn) << "\",\"type\":\"" << pt << "\",\"val\":" << vs << ",\"isProp\":true,\"canWrite\":" << (pi->set?"true":"false") << ",\"static\":" << (pStatic?"true":"false") << "}"; }
+                    std::string vs = read_field(pt, cur, p_static ? nullptr : (Il2CppObject*)addr, pn, &getter, p_static, ok, pi->get->return_type);
+                    if (ok) { if (!first_f) j << ","; first_f = false; j << "{\"name\":\"" << js_esc(pn) << "\",\"type\":\"" << pt << "\",\"val\":" << vs << ",\"isProp\":true,\"canWrite\":" << (pi->set?"true":"false") << ",\"static\":" << (p_static?"true":"false") << "}"; }
                 } catch(...) {}
             }
         }
 
         j << "],\"methods\":[";
-        bool firstM = true;
-        for (Class cur = startCls; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
+        bool first_m = true;
+        for (Class cur = start_cls; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
             auto* cn_ = cur.GetClass()->name;
-            if (!cn_) break;
+            if (!cn_ || !is_valid_pointer(cn_)) break;
             if (strcmp(cn_, "Object") == 0 && cur.GetClass()->namespaze && strcmp(cur.GetClass()->namespaze, "System") == 0) break;
             for (auto& m : cur.GetMethods(false)) {
                 auto* mi = m.GetInfo();
-                if (!m.IsValid() || !mi || !mi->name) continue;
-                if (!firstM) j << ","; firstM = false;
-                j << "{\"name\":\"" << jsEsc(mi->name) << "\",\"ret\":\"" << jsEsc(typeName(mi->return_type)) << "\",\"s\":" << ((mi->flags&0x10)?"true":"false") << ",\"params\":[";
-                for (int i = 0; i < (int)mi->parameters_count; i++) {
+                if (!m.IsValid() || !mi || !is_valid_pointer(mi) || !mi->name || !is_valid_pointer(mi->name)) continue;
+                if (!first_m) j << ","; first_m = false;
+                std::string ret_t = (mi->return_type && is_valid_pointer(mi->return_type)) ? type_name(mi->return_type) : "?";
+                j << "{\"name\":\"" << js_esc(mi->name) << "\",\"ret\":\"" << js_esc(ret_t) << "\",\"s\":" << ((mi->flags&0x10)?"true":"false") << ",\"params\":[";
+                int pcount = (int)mi->parameters_count;
+                for (int i = 0; i < pcount; i++) {
                     if (i>0) j<<",";
-                    j << "{\"n\":\"arg" << i << "\",\"t\":\"" << jsEsc(mi->parameters&&mi->parameters[i]?typeName(mi->parameters[i]):"?") << "\"}";
+                    std::string pt = get_param_type_name(mi, i);
+                    std::string pn = get_param_name(mi, i);
+                    j << "{\"n\":\"" << js_esc(pn) << "\",\"t\":\"" << js_esc(pt) << "\"}";
                 }
                 j << "]}";
             }
@@ -1230,21 +2089,21 @@ static void startServer() {
     });
 
     svr.Post("/api/scene/update",[](const httplib::Request& req, httplib::Response& res) {
-        AttachThread();
-        uintptr_t addr = (uintptr_t)strtoull(jsonVal(req.body, "addr").c_str(), nullptr, 16);
-        if (!addr) { res.set_content("{\"ok\":false}", "application/json"); return; }
-        std::string type = jsonVal(req.body, "type"), prop = jsonVal(req.body, "prop"), val = jsonVal(req.body, "val");
+        attach_thread();
+        uintptr_t addr = (uintptr_t)strtoull(json_val(req.body, "addr").c_str(), nullptr, 16);
+        if (!addr || !is_valid_pointer((void*)addr)) { res.set_content("{\"ok\":false}", "application/json"); return; }
+        std::string type = json_val(req.body, "type"), prop = json_val(req.body, "prop"), val = json_val(req.body, "val");
         try {
             if (type == "gameobject") {
                 if (prop == "active") {
-                    bool newActive = val == "true";
-                    Il2CppObject* go = resolveComponentByAddr(addr);
+                    bool new_active = val == "true";
+                    Il2CppObject* go = resolve_component_by_addr(addr);
                     if (go) {
-                        Method<void> setActive(Class("UnityEngine","GameObject").GetMethod("SetActive", 1));
-                        if (setActive.IsValid()) setActive[go](newActive);
+                        Method<void> set_active(Class("UnityEngine","GameObject").GetMethod("SetActive", 1));
+                        if (set_active.IsValid()) set_active[go](new_active);
                     }
                 } else if (prop == "name") {
-                    Il2CppObject* go = resolveComponentByAddr(addr);
+                    Il2CppObject* go = resolve_component_by_addr(addr);
                     if (go) {
                         Method<void> m(Class("UnityEngine","Object").GetMethod("set_name",1));
                         if(m.IsValid()) m[go](CreateMonoString(val));
@@ -1252,24 +2111,24 @@ static void startServer() {
                 }
             } else if (type == "transform") {
                 float x=0,y=0,z=0; sscanf(val.c_str(),"[%f,%f,%f]",&x,&y,&z); Vector3 v={x,y,z};
-                Il2CppObject* tr = resolveComponentByAddr(addr);
+                Il2CppObject* tr = resolve_component_by_addr(addr);
                 if (tr) {
                     if (prop=="p") { Method<void> m(Class("UnityEngine","Transform").GetMethod("set_localPosition",1)); if(m.IsValid()) m[tr](v); }
                     else if (prop=="r") { Method<void> m(Class("UnityEngine","Transform").GetMethod("set_localEulerAngles",1)); if(m.IsValid()) m[tr](v); }
                     else if (prop=="s") { Method<void> m(Class("UnityEngine","Transform").GetMethod("set_localScale",1)); if(m.IsValid()) m[tr](v); }
                 }
             } else if (type == "script") {
-                std::string name = jsonVal(req.body, "prop2");
-                std::string ft   = jsonVal(req.body, "ftype");
-                bool isProp      = jsonVal(req.body, "isProp") == "true";
+                std::string name = json_val(req.body, "prop2");
+                std::string ft   = json_val(req.body, "ftype");
+                bool is_prop     = json_val(req.body, "isProp") == "true";
                 if (prop == "enabled") {
                     try {
-                        bool newEnabled = val == "true";
-                        Il2CppObject* comp = resolveComponentByAddr(addr);
+                        bool new_enabled = val == "true";
+                        Il2CppObject* comp = resolve_component_by_addr(addr);
                         if (comp && comp->klass) {
-                            auto setEnabledOnComp = [&](Il2CppObject* c, bool v) {
-                                Class compKlass(c->klass);
-                                for (Class cur = compKlass; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
+                            auto set_enabled_on_comp = [&](Il2CppObject* c, bool v) {
+                                Class comp_klass(c->klass);
+                                for (Class cur = comp_klass; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
                                     auto* cn_ = cur.GetClass()->name;
                                     if (!cn_ || strcmp(cn_, "Component") == 0 || strcmp(cn_, "Object") == 0) break;
                                     auto ep = cur.GetProperty("enabled");
@@ -1279,9 +2138,9 @@ static void startServer() {
                                 }
                                 return false;
                             };
-                            auto getEnabledFromComp = [&](Il2CppObject* c) -> bool {
-                                Class compKlass(c->klass);
-                                for (Class cur = compKlass; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
+                            auto get_enabled_from_comp = [&](Il2CppObject* c) -> bool {
+                                Class comp_klass(c->klass);
+                                for (Class cur = comp_klass; cur.IsValid() && cur.GetClass(); cur = cur.GetParent()) {
                                     auto* cn_ = cur.GetClass()->name;
                                     if (!cn_ || strcmp(cn_, "Component") == 0 || strcmp(cn_, "Object") == 0) break;
                                     auto ep = cur.GetProperty("enabled");
@@ -1292,34 +2151,34 @@ static void startServer() {
                                 }
                                 return false;
                             };
-                            if (newEnabled) {
-                                bool already = getEnabledFromComp(comp);
+                            if (new_enabled) {
+                                bool already = get_enabled_from_comp(comp);
                                 if (!already) {
-                                    setEnabledOnComp(comp, true);
+                                    set_enabled_on_comp(comp, true);
                                     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                                    comp = resolveComponentByAddr(addr);
+                                    comp = resolve_component_by_addr(addr);
                                     if (!comp) { res.set_content("{\"ok\":true,\"warn\":\"enabled but object moved\"}", "application/json"); return; }
                                 }
                             } else {
-                                setEnabledOnComp(comp, false);
+                                set_enabled_on_comp(comp, false);
                             }
                         }
                     } catch(...) {}
                 } else {
-                    std::string compNs  = jsonVal(req.body, "compNs");
-                    std::string compCls = jsonVal(req.body, "compCls");
-                    std::string compAsm = jsonVal(req.body, "compAsm");
-                    Il2CppObject* obj = resolveComponentByAddr(addr);
+                    std::string comp_ns  = json_val(req.body, "compNs");
+                    std::string comp_cls = json_val(req.body, "compCls");
+                    std::string comp_asm = json_val(req.body, "compAsm");
+                    Il2CppObject* obj = resolve_component_by_addr(addr);
                     if (!obj) { res.set_content("{\"ok\":false,\"error\":\"stale address\"}", "application/json"); return; }
-                    Class startCls = (obj->klass) ? Class(obj->klass) :
-                                     Class(compNs.c_str(), compCls.c_str(), compAsm.empty() ? Image() : Image(compAsm.c_str()));
-                    for (Class cur = startCls; cur.IsValid(); cur = cur.GetParent()) {
-                        if (isProp) {
+                    Class start_cls = (obj->klass) ? Class(obj->klass) :
+                                     Class(comp_ns.c_str(), comp_cls.c_str(), comp_asm.empty() ? Image() : Image(comp_asm.c_str()));
+                    for (Class cur = start_cls; cur.IsValid(); cur = cur.GetParent()) {
+                        if (is_prop) {
                             auto p = cur.GetProperty(name.c_str());
-                            if (p.IsValid() && p._data && p._data->set) { MethodBase s(p._data->set); writeField(ft, cur, obj, name, &s, val); break; }
+                            if (p.IsValid() && p._data && p._data->set) { MethodBase s(p._data->set); write_field(ft, cur, obj, name, &s, val); break; }
                         } else {
                             auto f = cur.GetField(name.c_str());
-                            if (f.IsValid()) { writeField(ft, cur, obj, name, nullptr, val); break; }
+                            if (f.IsValid()) { write_field(ft, cur, obj, name, nullptr, val); break; }
                         }
                     }
                 }
@@ -1329,22 +2188,22 @@ static void startServer() {
     });
 
     svr.Post("/api/instance/update",[](const httplib::Request& req, httplib::Response& res) {
-        AttachThread();
-        uintptr_t addr = (uintptr_t)strtoull(jsonVal(req.body, "addr").c_str(), nullptr, 16);
-        std::string a=jsonVal(req.body,"asm"), ns=jsonVal(req.body,"ns"), cn=jsonVal(req.body,"cls");
-        std::string name=jsonVal(req.body,"name"), ft=jsonVal(req.body,"ftype"), val=jsonVal(req.body,"val");
-        bool isProp = jsonVal(req.body,"isProp") == "true";
-        bool isStaticField = jsonVal(req.body,"isStatic") == "true";
-        Il2CppObject* obj = isStaticField ? nullptr : resolveComponentByAddr(addr);
-        if (obj || isStaticField) {
+        attach_thread();
+        uintptr_t addr = (uintptr_t)strtoull(json_val(req.body, "addr").c_str(), nullptr, 16);
+        std::string a=json_val(req.body,"asm"), ns=json_val(req.body,"ns"), cn=json_val(req.body,"cls");
+        std::string name=json_val(req.body,"name"), ft=json_val(req.body,"ftype"), val=json_val(req.body,"val");
+        bool is_prop = json_val(req.body,"isProp") == "true";
+        bool is_static_field = json_val(req.body,"isStatic") == "true";
+        Il2CppObject* obj = is_static_field ? nullptr : resolve_component_by_addr(addr);
+        if (obj || is_static_field) {
             try {
                 for (Class cur(ns.c_str(),cn.c_str(),Image(a.c_str())); cur.IsValid(); cur = cur.GetParent()) {
-                    if (isProp) {
+                    if (is_prop) {
                         auto p = cur.GetProperty(name.c_str());
-                        if (p.IsValid() && p._data && p._data->set) { MethodBase s(p._data->set); writeField(ft,cur,obj,name,&s,val,isStaticField); break; }
+                        if (p.IsValid() && p._data && p._data->set) { MethodBase s(p._data->set); write_field(ft,cur,obj,name,&s,val,is_static_field); break; }
                     } else {
                         auto f = cur.GetField(name.c_str());
-                        if (f.IsValid()) { writeField(ft,cur,obj,name,nullptr,val,isStaticField); break; }
+                        if (f.IsValid()) { write_field(ft,cur,obj,name,nullptr,val,is_static_field); break; }
                     }
                 }
             } catch(...) {}
@@ -1353,11 +2212,11 @@ static void startServer() {
     });
 
     svr.Post("/api/scene/delete",[](const httplib::Request& req, httplib::Response& res) {
-        AttachThread();
-        auto s = jsonVal(req.body, "addr");
+        attach_thread();
+        auto s = json_val(req.body, "addr");
         if (!s.empty()) {
             uintptr_t addr = (uintptr_t)strtoull(s.c_str(), nullptr, 16);
-            Il2CppObject* obj = resolveComponentByAddr(addr);
+            Il2CppObject* obj = resolve_component_by_addr(addr);
             if (obj) {
                 try { Method<void> m(Class("UnityEngine","Object").GetMethod("Destroy",1)); if(m.IsValid()) m(obj); } catch(...) {}
             }
@@ -1366,95 +2225,95 @@ static void startServer() {
     });
 
     svr.Post("/api/invoke",[](const httplib::Request& req, httplib::Response& res) {
-        auto r = invokeMethod(req.body);
+        auto r = invoke_method(req.body);
         std::ostringstream j;
-        j << "{\"ok\":" << (r.ok?"true":"false") << ",\"value\":\"" << jsEsc(r.val) << "\",\"error\":\"" << jsEsc(r.err) << "\"}";
+        j << "{\"ok\":" << (r.ok?"true":"false") << ",\"value\":\"" << js_esc(r.val) << "\",\"error\":\"" << js_esc(r.err) << "\"}";
         res.set_content(j.str(), "application/json");
     });
 
     svr.Post("/api/loop/add",[](const httplib::Request& req, httplib::Response& res) {
-        auto e = std::make_shared<LoopEntry>();
-        e->addr      = jsonVal(req.body, "addr");
-        e->asm_      = jsonVal(req.body, "asm");
-        e->ns        = jsonVal(req.body, "ns");
-        e->cls       = jsonVal(req.body, "cls");
-        e->name      = jsonVal(req.body, "name");
-        e->ftype     = jsonVal(req.body, "ftype");
-        e->isProp    = jsonVal(req.body, "isProp") == "true";
-        e->val       = jsonVal(req.body, "val");
-        int ms       = 0;
-        try { ms = std::stoi(jsonVal(req.body, "interval")); } catch(...) {}
+        auto e = std::make_shared<loop_entry>();
+        e->addr         = json_val(req.body, "addr");
+        e->asm_         = json_val(req.body, "asm");
+        e->ns           = json_val(req.body, "ns");
+        e->cls          = json_val(req.body, "cls");
+        e->name         = json_val(req.body, "name");
+        e->ftype        = json_val(req.body, "ftype");
+        e->is_prop      = json_val(req.body, "isProp") == "true";
+        e->val          = json_val(req.body, "val");
+        int ms          = 0;
+        try { ms = std::stoi(json_val(req.body, "interval")); } catch(...) {}
         if (ms < 50) ms = 100;
-        e->intervalMs = ms;
+        e->interval_ms = ms;
 
         std::string id = e->addr + "_" + e->cls + "_" + e->name;
         {
-            std::lock_guard<std::mutex> lk(g_loopMtx);
+            std::lock_guard<std::mutex> lk(g_loop_mtx);
             auto it = g_loops.find(id);
             if (it != g_loops.end()) it->second->active = false;
             g_loops[id] = e;
         }
 
         std::thread([e, id]() {
-            AttachThread();
+            attach_thread();
             while (e->active) {
-                applyLoopEntry(e);
-                std::this_thread::sleep_for(std::chrono::milliseconds(e->intervalMs));
+                apply_loop_entry(e);
+                std::this_thread::sleep_for(std::chrono::milliseconds(e->interval_ms));
             }
-            std::lock_guard<std::mutex> lk(g_loopMtx);
+            std::lock_guard<std::mutex> lk(g_loop_mtx);
             auto it = g_loops.find(id);
             if (it != g_loops.end() && it->second == e) g_loops.erase(it);
         }).detach();
 
         std::ostringstream j;
-        j << "{\"ok\":true,\"id\":\"" << jsEsc(id) << "\"}";
+        j << "{\"ok\":true,\"id\":\"" << js_esc(id) << "\"}";
         res.set_content(j.str(), "application/json");
     });
 
     svr.Post("/api/loop/remove",[](const httplib::Request& req, httplib::Response& res) {
-        std::string id = jsonVal(req.body, "id");
-        std::lock_guard<std::mutex> lk(g_loopMtx);
+        std::string id = json_val(req.body, "id");
+        std::lock_guard<std::mutex> lk(g_loop_mtx);
         auto it = g_loops.find(id);
         if (it != g_loops.end()) { it->second->active = false; g_loops.erase(it); }
         res.set_content("{\"ok\":true}", "application/json");
     });
 
     svr.Post("/api/loop/removeall",[](const httplib::Request&, httplib::Response& res) {
-        std::lock_guard<std::mutex> lk(g_loopMtx);
+        std::lock_guard<std::mutex> lk(g_loop_mtx);
         for (auto& kv : g_loops) kv.second->active = false;
         g_loops.clear();
         res.set_content("{\"ok\":true}", "application/json");
     });
 
     svr.Get("/api/loop/list",[](const httplib::Request&, httplib::Response& res) {
-        res.set_content(loopListJson(), "application/json");
+        res.set_content(loop_list_json(), "application/json");
     });
 
     svr.Get("/api/logs",[](const httplib::Request&, httplib::Response& res) {
-        res.set_content(logsJson(), "application/json");
+        res.set_content(logs_json(), "application/json");
     });
 
     svr.Post("/api/logs/clear",[](const httplib::Request&, httplib::Response& res) {
-        std::lock_guard<std::mutex> lk(g_logMtx);
-        g_logBuffer.clear();
+        std::lock_guard<std::mutex> lk(g_log_mtx);
+        g_log_buffer.clear();
         res.set_content("{\"ok\":true}", "application/json");
     });
 
     svr.Post("/api/logs/add",[](const httplib::Request& req, httplib::Response& res) {
-        std::string msg = jsonVal(req.body, "msg");
+        std::string msg = json_val(req.body, "msg");
         int level = 0;
-        try { level = std::stoi(jsonVal(req.body, "level")); } catch(...) {}
-        addLogEntry(msg, level);
+        try { level = std::stoi(json_val(req.body, "level")); } catch(...) {}
+        add_log_entry(msg, level);
         res.set_content("{\"ok\":true}", "application/json");
     });
 
     svr.Get("/api/timescale",[](const httplib::Request&, httplib::Response& res) {
-        AttachThread();
+        attach_thread();
         float ts = 1.0f;
         try {
-            Class timeCls("UnityEngine", "Time");
-            if (timeCls.IsValid()) {
-                Method<float> get(timeCls.GetMethod("get_timeScale"));
+            Class time_cls("UnityEngine", "Time");
+            if (time_cls.IsValid()) {
+                Method<float> get(time_cls.GetMethod("get_timeScale"));
                 if (get.IsValid()) ts = get();
             }
         } catch(...) {}
@@ -1462,13 +2321,13 @@ static void startServer() {
     });
 
     svr.Post("/api/timescale",[](const httplib::Request& req, httplib::Response& res) {
-        AttachThread();
+        attach_thread();
         float val = 1.0f;
-        try { val = std::stof(jsonVal(req.body, "value")); } catch(...) {}
+        try { val = std::stof(json_val(req.body, "value")); } catch(...) {}
         try {
-            Class timeCls("UnityEngine", "Time");
-            if (timeCls.IsValid()) {
-                Method<void> set(timeCls.GetMethod("set_timeScale", 1));
+            Class time_cls("UnityEngine", "Time");
+            if (time_cls.IsValid()) {
+                Method<void> set(time_cls.GetMethod("set_timeScale", 1));
                 if (set.IsValid()) set(val);
             }
         } catch(...) {}
@@ -1476,11 +2335,11 @@ static void startServer() {
     });
 
     svr.Post("/api/scene/destroy",[](const httplib::Request& req, httplib::Response& res) {
-        AttachThread();
-        auto s = jsonVal(req.body, "addr");
+        attach_thread();
+        auto s = json_val(req.body, "addr");
         if (!s.empty()) {
             uintptr_t addr = (uintptr_t)strtoull(s.c_str(), nullptr, 16);
-            Il2CppObject* obj = resolveComponentByAddr(addr);
+            Il2CppObject* obj = resolve_component_by_addr(addr);
             if (obj) {
                 try {
                     Method<void> m(Class("UnityEngine","Object").GetMethod("Destroy",1));
@@ -1492,24 +2351,24 @@ static void startServer() {
     });
 
     svr.Post("/api/scene/create",[](const httplib::Request& req, httplib::Response& res) {
-        AttachThread();
-        std::string name = jsonVal(req.body, "name");
+        attach_thread();
+        std::string name = json_val(req.body, "name");
         if (name.empty()) name = "New GameObject";
         std::ostringstream j;
         try {
-            Class goCls("UnityEngine", "GameObject");
+            Class go_cls("UnityEngine", "GameObject");
             Method<Il2CppObject*> ctor;
-            for (auto& m : goCls.GetMethods(false)) {
+            for (auto& m : go_cls.GetMethods(false)) {
                 auto* mi = m.GetInfo();
-                if (mi && mi->name && strcmp(mi->name, ".ctor") == 0 && mi->parameters_count == 1) {
+                if (mi && is_valid_pointer(mi) && mi->name && is_valid_pointer(mi->name) && strcmp(mi->name, ".ctor") == 0 && mi->parameters_count == 1) {
                     ctor = Method<Il2CppObject*>(m);
                     break;
                 }
             }
             if (ctor.IsValid()) {
-                Il2CppObject* newGO = goCls.CreateNewObjectParameters(CreateMonoString(name.c_str()));
-                if (newGO) {
-                    j << "{\"ok\":true,\"addr\":\"" << std::hex << (uintptr_t)newGO << "\"}";
+                Il2CppObject* new_go = go_cls.CreateNewObjectParameters(CreateMonoString(name.c_str()));
+                if (new_go) {
+                    j << "{\"ok\":true,\"addr\":\"" << std::hex << (uintptr_t)new_go << "\"}";
                     res.set_content(j.str(), "application/json");
                     return;
                 }
@@ -1519,22 +2378,22 @@ static void startServer() {
     });
 
     svr.Post("/api/scene/addcomponent",[](const httplib::Request& req, httplib::Response& res) {
-        AttachThread();
-        uintptr_t addr = (uintptr_t)strtoull(jsonVal(req.body, "addr").c_str(), nullptr, 16);
-        std::string typeName_ = jsonVal(req.body, "type");
-        if (!addr || typeName_.empty()) { res.set_content("{\"ok\":false}", "application/json"); return; }
-        Il2CppObject* go = resolveComponentByAddr(addr);
+        attach_thread();
+        uintptr_t addr = (uintptr_t)strtoull(json_val(req.body, "addr").c_str(), nullptr, 16);
+        std::string type_name_ = json_val(req.body, "type");
+        if (!addr || !is_valid_pointer((void*)addr) || type_name_.empty()) { res.set_content("{\"ok\":false}", "application/json"); return; }
+        Il2CppObject* go = resolve_component_by_addr(addr);
         if (!go) { res.set_content("{\"ok\":false,\"error\":\"stale address\"}", "application/json"); return; }
         try {
-            Il2CppObject* typeObj = sysTypeOf(typeName_);
-            if (!typeObj) typeObj = sysTypeOf(typeName_ + ", UnityEngine.CoreModule");
-            if (!typeObj) typeObj = sysTypeOf(typeName_ + ", UnityEngine");
-            if (!typeObj) typeObj = sysTypeOf(typeName_ + ", Assembly-CSharp");
-            if (typeObj) {
-                Class goCls("UnityEngine", "GameObject");
-                Method<Il2CppObject*> addComp(goCls.GetMethod("AddComponent", 1));
-                if (addComp.IsValid()) {
-                    Il2CppObject* comp = addComp[go](typeObj);
+            Il2CppObject* type_obj = sys_type_of(type_name_);
+            if (!type_obj) type_obj = sys_type_of(type_name_ + ", UnityEngine.CoreModule");
+            if (!type_obj) type_obj = sys_type_of(type_name_ + ", UnityEngine");
+            if (!type_obj) type_obj = sys_type_of(type_name_ + ", Assembly-CSharp");
+            if (type_obj) {
+                Class go_cls("UnityEngine", "GameObject");
+                Method<Il2CppObject*> add_comp(go_cls.GetMethod("AddComponent", 1));
+                if (add_comp.IsValid()) {
+                    Il2CppObject* comp = add_comp[go](type_obj);
                     if (comp) {
                         std::ostringstream j;
                         j << "{\"ok\":true,\"addr\":\"" << std::hex << (uintptr_t)comp << "\"}";
@@ -1548,10 +2407,10 @@ static void startServer() {
     });
 
     svr.Post("/api/scene/removecomponent",[](const httplib::Request& req, httplib::Response& res) {
-        AttachThread();
-        uintptr_t addr = (uintptr_t)strtoull(jsonVal(req.body, "addr").c_str(), nullptr, 16);
-        if (!addr) { res.set_content("{\"ok\":false}", "application/json"); return; }
-        Il2CppObject* obj = resolveComponentByAddr(addr);
+        attach_thread();
+        uintptr_t addr = (uintptr_t)strtoull(json_val(req.body, "addr").c_str(), nullptr, 16);
+        if (!addr || !is_valid_pointer((void*)addr)) { res.set_content("{\"ok\":false}", "application/json"); return; }
+        Il2CppObject* obj = resolve_component_by_addr(addr);
         if (!obj) { res.set_content("{\"ok\":false,\"error\":\"stale address\"}", "application/json"); return; }
         try {
             Method<void> destroy(Class("UnityEngine","Object").GetMethod("Destroy",1));
@@ -1561,39 +2420,39 @@ static void startServer() {
     });
 
     svr.Get("/api/dump",[](const httplib::Request&, httplib::Response& res) {
-        AttachThread();
+        attach_thread();
         std::ostringstream out;
         for (auto& img : Image::GetImages()) {
             auto* d = img.GetInfo();
-            if (!img.IsValid() || !d || !d->name) continue;
+            if (!img.IsValid() || !d || !is_valid_pointer(d) || !d->name || !is_valid_pointer(d->name)) continue;
             out << "// Assembly: " << d->name << "\n\n";
             for (auto& cls : img.GetClasses(false)) {
                 auto* r = cls.GetClass();
-                if (!cls.IsValid() || !r || !r->name) continue;
-                std::string clsKw = "class";
-                if (r->enumtype) clsKw = "enum";
-                else if (r->byval_arg.valuetype) clsKw = "struct";
-                else if (r->flags & 0x20) clsKw = "interface";
-                if (r->namespaze && strlen(r->namespaze) > 0) {
+                if (!cls.IsValid() || !r || !is_valid_pointer(r) || !r->name || !is_valid_pointer(r->name)) continue;
+                std::string cls_kw = "class";
+                if (r->enumtype) cls_kw = "enum";
+                else if (r->byval_arg.valuetype) cls_kw = "struct";
+                else if (r->flags & 0x20) cls_kw = "interface";
+                if (r->namespaze && is_valid_pointer(r->namespaze) && strlen(r->namespaze) > 0) {
                     out << "namespace " << r->namespaze << " {\n";
                 }
-                std::string indent = (r->namespaze && strlen(r->namespaze) > 0) ? "    " : "";
+                std::string indent = (r->namespaze && is_valid_pointer(r->namespaze) && strlen(r->namespaze) > 0) ? "    " : "";
                 std::string parent = "";
-                if (r->parent && r->parent->name && strcmp(r->parent->name, "Object") != 0 && strcmp(r->parent->name, "ValueType") != 0)
-                    parent = " : " + std::string(r->parent->namespaze && strlen(r->parent->namespaze) > 0 ? std::string(r->parent->namespaze) + "." : "") + r->parent->name;
-                out << indent << "public " << clsKw << " " << r->name << parent << " {\n";
+                if (r->parent && is_valid_pointer(r->parent) && r->parent->name && is_valid_pointer(r->parent->name) && strcmp(r->parent->name, "Object") != 0 && strcmp(r->parent->name, "ValueType") != 0)
+                    parent = " : " + std::string(r->parent->namespaze && is_valid_pointer(r->parent->namespaze) && strlen(r->parent->namespaze) > 0 ? std::string(r->parent->namespaze) + "." : "") + r->parent->name;
+                out << indent << "public " << cls_kw << " " << r->name << parent << " {\n";
                 for (auto& f : cls.GetFields(false)) {
                     auto* fi = f.GetInfo();
-                    if (!fi || !fi->name) continue;
-                    std::string tn = typeName(fi->type);
-                    bool isStatic = fi->type && (fi->type->attrs & 0x10);
+                    if (!fi || !is_valid_pointer(fi) || !fi->name || !is_valid_pointer(fi->name)) continue;
+                    std::string tn = (fi->type && is_valid_pointer(fi->type)) ? type_name(fi->type) : "?";
+                    bool is_static = fi->type && is_valid_pointer(fi->type) && (fi->type->attrs & 0x10);
                     out << indent << "    // offset 0x" << std::hex << fi->offset << std::dec << "\n";
-                    out << indent << "    public " << (isStatic ? "static " : "") << tn << " " << fi->name << ";\n";
+                    out << indent << "    public " << (is_static ? "static " : "") << tn << " " << fi->name << ";\n";
                 }
                 for (auto& p : cls.GetProperties(false)) {
                     auto* pi = p._data;
-                    if (!pi || !pi->name) continue;
-                    std::string tn = pi->get && pi->get->return_type ? typeName(pi->get->return_type) : "?";
+                    if (!pi || !is_valid_pointer(pi) || !pi->name || !is_valid_pointer(pi->name)) continue;
+                    std::string tn = (pi->get && is_valid_pointer(pi->get) && pi->get->return_type && is_valid_pointer(pi->get->return_type)) ? type_name(pi->get->return_type) : "?";
                     out << indent << "    public " << tn << " " << pi->name << " {";
                     if (pi->get) out << " get;";
                     if (pi->set) out << " set;";
@@ -1601,31 +2460,31 @@ static void startServer() {
                 }
                 for (auto& m : cls.GetMethods(false)) {
                     auto* mi = m.GetInfo();
-                    if (!mi || !mi->name) continue;
+                    if (!mi || !is_valid_pointer(mi) || !mi->name || !is_valid_pointer(mi->name)) continue;
+                    std::string ret = (mi->return_type && is_valid_pointer(mi->return_type)) ? type_name(mi->return_type) : "?";
+                    bool is_static = mi->flags & 0x10;
                     char ab[32] = {};
-                    if (mi->methodPointer) snprintf(ab, sizeof(ab), "0x%llX", (unsigned long long)(uintptr_t)mi->methodPointer);
-                    bool isStatic = mi->flags & 0x10;
-                    out << indent << "    // " << ab << "\n";
-                    out << indent << "    public " << (isStatic ? "static " : "") << typeName(mi->return_type) << " " << mi->name << "(";
-                    for (int i = 0; i < (int)mi->parameters_count; i++) {
+                    if (mi->methodPointer) snprintf(ab, sizeof(ab), "// %llX\n%s    ", (unsigned long long)(uintptr_t)mi->methodPointer, indent.c_str());
+                    out << indent << "    " << ab << "public " << (is_static ? "static " : "") << ret << " " << mi->name << "(";
+                    int pcount = (int)mi->parameters_count;
+                    for (int i = 0; i < pcount; i++) {
                         if (i > 0) out << ", ";
-                        out << (mi->parameters && mi->parameters[i] ? typeName(mi->parameters[i]) : "?") << " arg" << i;
+                        out << get_param_type_name(mi, i) << " " << get_param_name(mi, i);
                     }
                     out << ") {}\n";
                 }
                 out << indent << "}\n";
-                if (r->namespaze && strlen(r->namespaze) > 0) out << "}\n";
-                out << "\n";
+                if (r->namespaze && is_valid_pointer(r->namespaze) && strlen(r->namespaze) > 0) out << "}\n";
             }
         }
         res.set_content(out.str(), "text/plain");
     });
 
     svr.Get("/api/scene/addable",[](const httplib::Request&, httplib::Response& res) {
-        AttachThread();
+        attach_thread();
         std::ostringstream j;
         j << "{";
-        bool firstCat = true;
+        bool first_cat = true;
         static const struct { const char* cat; const char* ns; const char* name; } known[] = {
                 {"Physics","UnityEngine","Rigidbody"},{"Physics","UnityEngine","BoxCollider"},{"Physics","UnityEngine","SphereCollider"},
                 {"Physics","UnityEngine","CapsuleCollider"},{"Physics","UnityEngine","MeshCollider"},{"Physics","UnityEngine","CharacterController"},
@@ -1649,27 +2508,27 @@ static void startServer() {
         }
         for (auto& img : Image::GetImages()) {
             auto* d = img.GetInfo();
-            if (!img.IsValid() || !d || !d->name) continue;
+            if (!img.IsValid() || !d || !is_valid_pointer(d) || !d->name || !is_valid_pointer(d->name)) continue;
             if (strstr(d->name, "Assembly-CSharp") == nullptr && strstr(d->name, "Assembly-CSharp-firstpass") == nullptr) continue;
             for (auto& cls : img.GetClasses(false)) {
                 auto* r = cls.GetClass();
-                if (!cls.IsValid() || !r || !r->name) continue;
-                bool isMono = false;
-                for (auto* cur = r; cur; cur = cur->parent)
-                    if (cur->name && strcmp(cur->name, "MonoBehaviour") == 0) { isMono = true; break; }
-                if (!isMono) continue;
-                std::string ns = r->namespaze ? r->namespaze : "";
-                std::string fullName = ns.empty() ? r->name : ns + "." + r->name;
-                cats["Scripts"].push_back({fullName, r->name});
+                if (!cls.IsValid() || !r || !is_valid_pointer(r) || !r->name || !is_valid_pointer(r->name)) continue;
+                bool is_mono = false;
+                for (auto* cur = r; cur && is_valid_pointer(cur); cur = cur->parent)
+                    if (cur->name && is_valid_pointer(cur->name) && strcmp(cur->name, "MonoBehaviour") == 0) { is_mono = true; break; }
+                if (!is_mono) continue;
+                std::string ns = (r->namespaze && is_valid_pointer(r->namespaze)) ? r->namespaze : "";
+                std::string full_name = ns.empty() ? r->name : ns + "." + r->name;
+                cats["Scripts"].push_back({full_name, r->name});
             }
         }
         for (auto& kv : cats) {
-            if (!firstCat) j << ","; firstCat = false;
-            j << "\"" << jsEsc(kv.first) << "\":[";
+            if (!first_cat) j << ","; first_cat = false;
+            j << "\"" << js_esc(kv.first) << "\":[";
             bool first = true;
             for (auto& p : kv.second) {
                 if (!first) j << ","; first = false;
-                j << "{\"full\":\"" << jsEsc(p.first) << "\",\"name\":\"" << jsEsc(p.second) << "\"}";
+                j << "{\"full\":\"" << js_esc(p.first) << "\",\"name\":\"" << js_esc(p.second) << "\"}";
             }
             j << "]";
         }
@@ -1678,67 +2537,67 @@ static void startServer() {
     });
 
     svr.Post("/api/catcher/hook",[](const httplib::Request& req, httplib::Response& res) {
-        AttachThread();
-        std::string asm_ = jsonVal(req.body, "asm");
-        std::string ns   = jsonVal(req.body, "ns");
-        std::string cls  = jsonVal(req.body, "cls");
-        std::string meth = jsonVal(req.body, "method");
+        attach_thread();
+        std::string asm_ = json_val(req.body, "asm");
+        std::string ns   = json_val(req.body, "ns");
+        std::string cls  = json_val(req.body, "cls");
+        std::string meth = json_val(req.body, "method");
         std::string id   = asm_ + "|" + ns + "|" + cls + "|" + meth;
         {
-            std::lock_guard<std::mutex> lk(g_catcherMtx);
+            std::lock_guard<std::mutex> lk(g_catcher_mtx);
             if (g_catchers.count(id)) {
-                res.set_content(std::string("{\"ok\":true,\"exists\":true,\"id\":\"") + jsEsc(id) + "\"}", "application/json");
+                res.set_content(std::string("{\"ok\":true,\"exists\":true,\"id\":\"") + js_esc(id) + "\"}", "application/json");
                 return;
             }
         }
         int slot = -1;
         {
-            std::lock_guard<std::mutex> lk(g_catcherSlotMtx);
+            std::lock_guard<std::mutex> lk(g_catcher_slot_mtx);
             for (int i = 0; i < MAX_CATCHERS; i++) {
-                if (!g_catcherSlots[i]) { slot = i; break; }
+                if (!g_catcher_slots[i]) { slot = i; break; }
             }
         }
-        if (slot < 0) { res.set_content("{\"ok\":false,\"error\":\"max catchers reached\"}", "application/json"); return; }
-        auto entry = std::make_shared<CatcherEntry>();
+        if (slot < 0) { res.set_content("{\"ok\":false,\"error\":\"Maximum active catchers reached\"}", "application/json"); return; }
+        auto entry = std::make_shared<catcher_entry>();
         entry->id = id; entry->asm_ = asm_; entry->ns = ns; entry->cls = cls; entry->method = meth;
-        entry->slotIdx = slot;
+        entry->slot_idx = slot;
         Class c(ns.c_str(), cls.c_str(), Image(asm_.c_str()));
-        if (!c.IsValid()) { res.set_content("{\"ok\":false,\"error\":\"class not found\"}", "application/json"); return; }
+        if (!c.IsValid()) { res.set_content("{\"ok\":false,\"error\":\"Target class not found\"}", "application/json"); return; }
         MethodBase mb = c.GetMethod(meth.c_str());
-        if (!mb.IsValid()) { res.set_content("{\"ok\":false,\"error\":\"method not found\"}", "application/json"); return; }
+        if (!mb.IsValid()) { res.set_content("{\"ok\":false,\"error\":\"Target method not found\"}", "application/json"); return; }
         auto* mi = mb.GetInfo();
-        if (!mi || !mi->methodPointer) { res.set_content("{\"ok\":false,\"error\":\"no method pointer\"}", "application/json"); return; }
-        entry->retType = typeName(mi->return_type);
-        for (int i = 0; i < (int)mi->parameters_count; i++) {
-            entry->paramTypes.push_back(mi->parameters && mi->parameters[i] ? typeName(mi->parameters[i]) : "?");
-            entry->paramNames.push_back("arg" + std::to_string(i));
+        if (!mi || !is_valid_pointer(mi) || !mi->methodPointer) { res.set_content("{\"ok\":false,\"error\":\"No compiled pointer for method\"}", "application/json"); return; }
+        entry->ret_type = (mi->return_type && is_valid_pointer(mi->return_type)) ? type_name(mi->return_type) : "?";
+        int pcount = (int)mi->parameters_count;
+        for (int i = 0; i < pcount; i++) {
+            entry->param_types.push_back(get_param_type_name(mi, i));
+            entry->param_names.push_back(get_param_name(mi, i));
         }
         {
-            std::lock_guard<std::mutex> lk(g_catcherSlotMtx);
-            g_catcherSlots[slot] = new std::shared_ptr<CatcherEntry>(entry);
+            std::lock_guard<std::mutex> lk(g_catcher_slot_mtx);
+            g_catcher_slots[slot] = new std::shared_ptr<catcher_entry>(entry);
         }
-        InvokeHook(mb, g_catcherHookFns[slot], g_catcherOrigPtrs[slot]);
+        InvokeHook(mb, g_catcher_hook_fns[slot], g_catcher_orig_ptrs[slot]);
         {
-            std::lock_guard<std::mutex> lk(g_catcherMtx);
+            std::lock_guard<std::mutex> lk(g_catcher_mtx);
             g_catchers[id] = entry;
         }
         std::ostringstream j;
-        j << "{\"ok\":true,\"id\":\"" << jsEsc(id) << "\"}";
+        j << "{\"ok\":true,\"id\":\"" << js_esc(id) << "\"}";
         res.set_content(j.str(), "application/json");
     });
 
     svr.Post("/api/catcher/unhook",[](const httplib::Request& req, httplib::Response& res) {
-        std::string id = jsonVal(req.body, "id");
-        std::lock_guard<std::mutex> lk(g_catcherMtx);
+        std::string id = json_val(req.body, "id");
+        std::lock_guard<std::mutex> lk(g_catcher_mtx);
         auto it = g_catchers.find(id);
         if (it != g_catchers.end()) {
             it->second->active = false;
-            int sl = it->second->slotIdx;
+            int sl = it->second->slot_idx;
             if (sl >= 0 && sl < MAX_CATCHERS) {
-                std::lock_guard<std::mutex> lk2(g_catcherSlotMtx);
-                delete g_catcherSlots[sl];
-                g_catcherSlots[sl] = nullptr;
-                g_catcherOrigPtrs[sl] = nullptr;
+                std::lock_guard<std::mutex> lk2(g_catcher_slot_mtx);
+                delete g_catcher_slots[sl];
+                g_catcher_slots[sl] = nullptr;
             }
             g_catchers.erase(it);
         }
@@ -1746,27 +2605,31 @@ static void startServer() {
     });
 
     svr.Post("/api/catcher/clear",[](const httplib::Request& req, httplib::Response& res) {
-        std::string id = jsonVal(req.body, "id");
-        std::lock_guard<std::mutex> lk(g_catcherMtx);
+        std::string id = json_val(req.body, "id");
+        std::lock_guard<std::mutex> lk(g_catcher_mtx);
         auto it = g_catchers.find(id);
-        if (it != g_catchers.end()) { std::lock_guard<std::mutex> lk2(it->second->callsMtx); it->second->calls.clear(); }
+        if (it != g_catchers.end()) {
+            std::lock_guard<std::mutex> lk2(it->second->calls_mtx);
+            it->second->calls.clear();
+        }
         res.set_content("{\"ok\":true}", "application/json");
     });
 
     svr.Get("/api/catcher/list",[](const httplib::Request&, httplib::Response& res) {
-        std::lock_guard<std::mutex> lk(g_catcherMtx);
+        std::lock_guard<std::mutex> lk(g_catcher_mtx);
         std::ostringstream j;
         j << "[";
         bool first = true;
         for (auto& kv : g_catchers) {
             auto& e = kv.second;
             if (!first) j << ","; first = false;
-            j << "{\"id\":\"" << jsEsc(e->id) << "\",\"cls\":\"" << jsEsc(e->cls) << "\",\"ns\":\"" << jsEsc(e->ns) << "\",\"method\":\"" << jsEsc(e->method) << "\",\"ret\":\"" << jsEsc(e->retType) << "\",\"active\":" << (e->active?"true":"false") << ",\"count\":";
-            { std::lock_guard<std::mutex> lk2(e->callsMtx); j << e->calls.size(); }
-            j << ",\"params\":[";
-            for (size_t i = 0; i < e->paramTypes.size(); i++) {
+            std::lock_guard<std::mutex> lk2(e->calls_mtx);
+            j << "{\"id\":\"" << js_esc(e->id) << "\",\"ns\":\"" << js_esc(e->ns) << "\",\"cls\":\"" << js_esc(e->cls)
+              << "\",\"method\":\"" << js_esc(e->method) << "\",\"ret\":\"" << js_esc(e->ret_type)
+              << "\",\"count\":" << e->calls.size() << ",\"params\":[";
+            for (size_t i = 0; i < e->param_types.size(); i++) {
                 if (i>0) j<<",";
-                j << "{\"t\":\"" << jsEsc(e->paramTypes[i]) << "\",\"n\":\"" << jsEsc(e->paramNames[i]) << "\"}";
+                j << "{\"t\":\"" << js_esc(e->param_types[i]) << "\",\"n\":\"" << js_esc(e->param_names[i]) << "\"}";
             }
             j << "]}";
         }
@@ -1776,22 +2639,22 @@ static void startServer() {
 
     svr.Get("/api/catcher/calls",[](const httplib::Request& req, httplib::Response& res) {
         std::string id = req.get_param_value("id");
-        std::lock_guard<std::mutex> lk(g_catcherMtx);
+        std::lock_guard<std::mutex> lk(g_catcher_mtx);
         auto it = g_catchers.find(id);
         if (it == g_catchers.end()) { res.set_content("[]", "application/json"); return; }
         auto& e = it->second;
-        std::lock_guard<std::mutex> lk2(e->callsMtx);
+        std::lock_guard<std::mutex> lk2(e->calls_mtx);
         std::ostringstream j;
         j << "[";
         bool first = true;
         for (auto& c : e->calls) {
             if (!first) j << ","; first = false;
-            j << "{\"ts\":" << std::fixed << c.ts << ",\"instance\":\"" << jsEsc(c.instance) << "\",\"args\":[";
+            j << "{\"ts\":" << std::fixed << c.ts << ",\"instance\":\"" << js_esc(c.instance) << "\",\"args\":[";
             for (size_t i = 0; i < c.args.size(); i++) {
                 if (i>0) j<<",";
-                j << "{\"t\":\"" << jsEsc(c.args[i].type) << "\",\"v\":" << c.args[i].val << "}";
+                j << "{\"t\":\"" << js_esc(c.args[i].type) << "\",\"v\":" << c.args[i].val << "}";
             }
-            j << "],\"ret\":\"" << jsEsc(c.ret) << "\"}";
+            j << "],\"ret\":\"" << js_esc(c.ret) << "\"}";
         }
         j << "]";
         res.set_content(j.str(), "application/json");
@@ -1799,11 +2662,11 @@ static void startServer() {
 
     svr.Post("/api/lua/exec",[](const httplib::Request& req, httplib::Response& res) {
         try {
-            std::string code = jsonVal(req.body, "code");
+            std::string code = json_val(req.body, "code");
             if (code.empty()) { res.set_content("{\"output\":\"Error: empty code\"}", "application/json"); return; }
             std::string out = executeLuaBNM(code);
             std::ostringstream j;
-            j << "{\"output\":\"" << jsEsc(out) << "\"}";
+            j << "{\"output\":\"" << js_esc(out) << "\"}";
             res.set_content(j.str(), "application/json");
         } catch (...) {
             res.set_content("{\"output\":\"Error: native crash in executor\"}", "application/json");
@@ -1813,15 +2676,15 @@ static void startServer() {
     svr.listen("0.0.0.0", g_port);
 }
 
-static void OnLoaded() {
-    hookDebugLog();
-    std::thread(startServer).detach();
+static void on_loaded() {
+    hook_debug_log();
+    std::thread(start_server).detach();
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, [[maybe_unused]] void* reserved) {
     JNIEnv* env;
     vm->GetEnv((void**)&env, JNI_VERSION_1_6);
-    BNM::Loading::AddOnLoadedEvent(OnLoaded);
+    BNM::Loading::AddOnLoadedEvent(on_loaded);
     BNM::Loading::TryLoadByJNI(env);
     return JNI_VERSION_1_6;
 }

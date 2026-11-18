@@ -1,3 +1,4 @@
+const int METADATA_VERSION = 29;
 typedef struct Il2CppClass Il2CppClass;
 typedef struct Il2CppType Il2CppType;
 typedef struct EventInfo EventInfo;
@@ -542,7 +543,7 @@ typedef struct Il2CppMetadataField
 } Il2CppMetadataField;
 typedef enum Il2CppMetadataTypeFlags
 {
-    kNone = 0,
+    il2cpp_kNone = 0,
     kValueType = 1 << 0,
     kArray = 1 << 1,
     kArrayRankMask = 0xFFFF0000
@@ -2018,7 +2019,7 @@ typedef struct Il2CppDelegate
     const MethodInfo *method;
     void* delegate_trampoline;
     intptr_t extraArg;
-    uint8_t **method_code;
+    Il2CppObject* invoke_impl_this;
     void* interp_method;
     void* interp_invoke_impl;
     Il2CppReflectionMethod *method_info;

@@ -9,25 +9,31 @@ BNM::Image::Image(const std::string_view &name) {
 }
 
 BNM::Image::Image(const BNM::IL2CPP::Il2CppAssembly *assembly) {
-    _data = Internal::il2cppMethods.il2cpp_assembly_get_image(assembly);
+    _data = Internal::il2cppMethods.il2cpp_assembly_get_image ? Internal::il2cppMethods.il2cpp_assembly_get_image(assembly) : nullptr;
 }
 
 std::vector<BNM::Class> BNM::Image::GetClasses(bool includeInner) const {
     std::vector<IL2CPP::Il2CppClass *> classes{};
 
+    if (!_data) return *(std::vector<BNM::Class> *) &classes; // Image not found / not loaded
+
     if (_data->nameToClassHashTable == (decltype(_data->nameToClassHashTable)) -0x424e4d) goto NEW_CLASSES;
 
 
+#if UNITY_VER >= 183
     if (Internal::il2cppMethods.il2cpp_image_get_class) {
         size_t typeCount = _data->typeCount;
 
         for (size_t i = 0; i < typeCount; ++i) {
             auto cls = Internal::il2cppMethods.il2cpp_image_get_class(_data, i);
+            if (!cls) continue; // il2cpp_image_get_class may return null for stripped types
             if (!includeInner && cls->declaringType || !cls->flags && strcmp(cls->name, BNM_OBFUSCATE("<Module>")) == 0) continue;
             classes.push_back(cls);
         }
 
-    } else {
+    } else
+#endif
+    {
         Internal::Image$$GetTypes(_data, false, &classes);
 
         if (includeInner) goto NEW_CLASSES;
@@ -57,11 +63,11 @@ std::vector<BNM::Class> BNM::Image::GetClasses(bool includeInner) const {
 }
 
 std::vector<BNM::Image> BNM::Image::GetImages() {
-    auto &assemblies = *Internal::il2cppMethods.Assembly$$GetAllAssemblies();
+    auto &assemblies = Internal::GetAllAssemblies();
 
     std::vector<Image> ret{assemblies.size()};
 
-    for (auto assembly : assemblies) ret.emplace_back(Internal::il2cppMethods.il2cpp_assembly_get_image(assembly));
+    if (Internal::il2cppMethods.il2cpp_assembly_get_image) for (auto assembly : assemblies) ret.emplace_back(Internal::il2cppMethods.il2cpp_assembly_get_image(assembly));
 
     return ret;
 }

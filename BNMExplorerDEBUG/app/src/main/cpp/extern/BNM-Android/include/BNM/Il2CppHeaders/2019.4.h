@@ -1,3 +1,4 @@
+const int METADATA_VERSION = 24;
 typedef struct Il2CppClass Il2CppClass;
 typedef struct Il2CppType Il2CppType;
 typedef struct EventInfo EventInfo;
@@ -912,7 +913,6 @@ typedef struct Il2CppInteropData
     const Il2CppGuid* guid;
     const Il2CppType* type;
 } Il2CppInteropData;
-typedef struct Il2CppInteropData Il2CppInteropData;
 typedef struct Il2CppClass Il2CppClass;
 typedef struct Il2CppGuid Il2CppGuid;
 typedef struct Il2CppImage Il2CppImage;

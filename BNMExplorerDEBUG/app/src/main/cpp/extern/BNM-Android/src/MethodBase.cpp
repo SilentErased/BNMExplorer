@@ -56,6 +56,7 @@ MethodBase MethodBase::GetOverride() const {
     NEXT:
     for (; i < klass->vtable_count; ++i) {
         auto &vTable = klass->vtable[i];
+        if (!vTable.method) continue; // vtable slot may be empty (stripped / not yet initialized)
         auto count = vTable.method->parameters_count;
 
         if (strcmp(vTable.method->name, _data->name) != 0 || count != _data->parameters_count) continue;

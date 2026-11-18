@@ -1,0 +1,18 @@
+#pragma once
+
+#include "DataIterator.hpp"
+#include "Decimal.hpp"
+#include "String.hpp"
+#include "Array.hpp"
+#include "List.hpp"
+#include "Dictionary.hpp"
+#include "HashSet.hpp"
+#include "Queue.hpp"
+#include "Stack.hpp"
+#include "ReadOnlyList.hpp"
+#include "Nullable.hpp"
+#include "KeyValuePair.hpp"
+#include "Guid.hpp"
+#include "TimeSpan.hpp"
+#include "DateTime.hpp"
+#include "Exception.hpp"

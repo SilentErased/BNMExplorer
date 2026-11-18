@@ -137,6 +137,22 @@ namespace BNM::Coroutine {
         Il2CppObject *_current{};
         std::coroutine_handle<promise_type> _coroutine{};
     };
+
+    namespace Generic {
+        /**
+            @brief Analog of C# System.Collections.Generic.IEnumerator<T>.
+
+            A typed view over a coroutine/enumerator object; the game-binding
+            generator emits it for System.Collections.Generic.IEnumerator<T>
+            references. It holds no runtime state of its own - Get()/MoveNext()
+            and the IL2CPP object layout are inherited from
+            BNM::Coroutine::IEnumerator, so pointers to it are valid IL2CPP
+            IEnumerator objects.
+            @tparam T Element type the enumerator yields (type tag only).
+        */
+        template<typename T = void>
+        struct IEnumerator : BNM::Coroutine::IEnumerator {};
+    }
 }
 // NOLINTEND
 

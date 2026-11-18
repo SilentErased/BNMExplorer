@@ -53,8 +53,17 @@ void *PRIVATE_MonoListData::CompareExchange4List(void *syncRoot) {
 
 // Method for getting and creating types for each list type
 BNM::IL2CPP::Il2CppClass *BNM::Structures::Mono::PRIVATE_MonoListData::TryGetMonoListClass(uint32_t typeHash, std::array<PRIVATE_MonoListData::MethodData, 16> &data) {
+    // Fast path: shared read — avoids lock contention when the type is already cached
+#ifdef BNM_ALLOW_MULTI_THREADING_SYNC
+    {
+        std::shared_lock lock(Internal::customListsMapMutex);
+        auto it = Internal::customListsMap.find(typeHash);
+        if (it != Internal::customListsMap.end() && it->second) return it->second;
+    }
+#else
     auto &klass = Internal::customListsMap[typeHash];
     if (klass) return klass;
+#endif
 
     std::map<size_t, BNM::IL2CPP::MethodInfo *> createdMethods{};
     auto templateClass = Internal::customListTemplateClass.GetClass();
@@ -80,6 +89,13 @@ BNM::IL2CPP::Il2CppClass *BNM::Structures::Mono::PRIVATE_MonoListData::TryGetMon
         cur.method = methodInfo;
         cur.methodPtr = methodInfo->methodPointer;
     }
-    klass = typedClass;
-    return klass;
+
+    // Insert into cache — exclusive write
+#ifdef BNM_ALLOW_MULTI_THREADING_SYNC
+    std::unique_lock lock(Internal::customListsMapMutex);
+    Internal::customListsMap[typeHash] = typedClass;
+#else
+    Internal::customListsMap[typeHash] = typedClass;
+#endif
+    return typedClass;
 }

@@ -14,23 +14,55 @@ Class::Class(const IL2CPP::Il2CppObject *object) {
 }
 
 Class::Class(const IL2CPP::Il2CppType *type) {
-    if (!type) return;
+    if (!type || !Internal::il2cppMethods.il2cpp_class_from_il2cpp_type) return;
     _data = Internal::il2cppMethods.il2cpp_class_from_il2cpp_type(type);
 }
 
 Class::Class(const MonoType *type) {
-    if (!type) return;
+    if (!type || !type->type || !Internal::il2cppMethods.il2cpp_class_from_il2cpp_type) return;
     _data = Internal::il2cppMethods.il2cpp_class_from_il2cpp_type(type->type);
 }
 
 Class::Class(const CompileTimeClass &compileTimeClass) { _data = compileTimeClass; }
 
-static IL2CPP::Il2CppClass *TryGetClassWithoutImage(const std::string_view &_namespace, const std::string_view &_name) {
-    auto &assemblies = *Internal::il2cppMethods.Assembly$$GetAllAssemblies();
+static std::vector<std::string_view> SplitNestedTokens(const std::string_view &name) {
+    std::vector<std::string_view> tokens{};
+    size_t start = 0;
+    for (size_t i = 0; i < name.length(); ++i) {
+        if (name[i] == '+' || name[i] == '/') {
+            if (i > start) tokens.push_back(name.substr(start, i - start));
+            start = i + 1;
+        }
+    }
+    if (start < name.length()) tokens.push_back(name.substr(start));
+    return tokens;
+}
 
-    for (auto assembly : assemblies) {
+static IL2CPP::Il2CppClass *ResolveNestedClass(IL2CPP::Il2CppClass *rootClass, const std::vector<std::string_view> &tokens) {
+    if (!rootClass || tokens.size() <= 1) return rootClass;
+    Class current(rootClass);
+    for (size_t i = 1; i < tokens.size(); ++i) {
+        current = current.GetInnerClass(tokens[i]);
+        if (!current.GetClass()) return nullptr;
+    }
+    return current.GetClass();
+}
+
+static IL2CPP::Il2CppClass *TryGetClassWithoutImage(const std::string_view &_namespace, const std::string_view &_name) {
+    auto tokens = SplitNestedTokens(_name);
+    auto rootName = tokens.empty() ? _name : tokens[0];
+
+    auto &assemblies = Internal::GetAllAssemblies();
+
+    if (Internal::il2cppMethods.il2cpp_assembly_get_image) for (auto assembly : assemblies) {
         auto image = Internal::il2cppMethods.il2cpp_assembly_get_image(assembly);
-        if (auto _data = Internal::TryGetClassInImage(image, _namespace, _name); _data) return _data;
+        if (auto rootData = Internal::TryGetClassInImage(image, _namespace, rootName); rootData) {
+            if (tokens.size() > 1) {
+                if (auto nestedData = ResolveNestedClass(rootData, tokens); nestedData) return nestedData;
+            } else {
+                return rootData;
+            }
+        }
     }
 
     return nullptr;
@@ -48,7 +80,17 @@ Class::Class(const std::string_view &_namespace, const std::string_view &_name, 
         return;
     }
 
-    if (_data = Internal::TryGetClassInImage(image, _namespace, _name); _data) return;
+    auto tokens = SplitNestedTokens(_name);
+    auto rootName = tokens.empty() ? _name : tokens[0];
+
+    if (auto rootData = Internal::TryGetClassInImage(image, _namespace, rootName); rootData) {
+        if (tokens.size() > 1) {
+            _data = ResolveNestedClass(rootData, tokens);
+        } else {
+            _data = rootData;
+        }
+        if (_data) return;
+    }
 
     BNM_LOG_WARN(DBG_BNM_MSG_Class_Constructor_Image_NotFound, image.str().data(), _namespace.data(), _name.data());
 }
@@ -61,7 +103,9 @@ std::vector<Class> Class::GetInnerClasses(bool includeParent) const {
     auto curClass = _data;
 
     do {
-        for (uint16_t i = 0; i < curClass->nested_type_count; ++i) ret.emplace_back(curClass->nestedTypes[i]);
+        auto nestedTypes = (IL2CPP::Il2CppClass *const *) curClass->nestedTypes; // const void* since 6000.5, typed pointer before
+        auto count = Internal::SafeCount(curClass->nested_type_count, nestedTypes);
+        for (uint16_t i = 0; i < count; ++i) ret.emplace_back(nestedTypes[i]);
         if (includeParent) curClass = curClass->parent;
         else break;
     } while (curClass);
@@ -77,8 +121,10 @@ std::vector<FieldBase> Class::GetFields(bool includeParent) const {
     auto curClass = _data;
 
     do {
-        auto end = curClass->fields + curClass->field_count;
-        for (IL2CPP::FieldInfo *currentField = curClass->fields; currentField != end; ++currentField) ret.emplace_back(currentField);
+        auto fields = curClass->fields;
+        auto count = Internal::SafeCount(curClass->field_count, fields);
+        auto end = fields + count;
+        for (IL2CPP::FieldInfo *currentField = fields; currentField != end; ++currentField) ret.emplace_back(currentField);
         if (includeParent) curClass = curClass->parent;
         else break;
     } while (curClass);
@@ -94,7 +140,8 @@ std::vector<MethodBase> Class::GetMethods(bool includeParent) const {
     auto curClass = _data;
 
     do {
-        for (uint16_t i = 0; i < curClass->method_count; ++i) ret.emplace_back(curClass->methods[i]);
+        auto count = Internal::SafeCount(curClass->method_count, curClass->methods);
+        for (uint16_t i = 0; i < count; ++i) ret.emplace_back(curClass->methods[i]);
         if (includeParent) curClass = curClass->parent;
         else break;
     } while (curClass);
@@ -110,8 +157,10 @@ std::vector<PropertyBase> Class::GetProperties(bool includeParent) const {
     auto curClass = _data;
 
     do {
-        auto end = curClass->properties + curClass->property_count;
-        for (auto currentProperty = curClass->properties; currentProperty != end; ++currentProperty) ret.emplace_back(currentProperty);
+        auto properties = (const IL2CPP::PropertyInfo *) curClass->properties; // const void* since 6000.5, typed pointer before
+        auto count = Internal::SafeCount(curClass->property_count, properties);
+        auto end = properties + count;
+        for (auto currentProperty = properties; currentProperty != end; ++currentProperty) ret.emplace_back(currentProperty);
         if (includeParent) curClass = curClass->parent;
         else break;
     } while (curClass);
@@ -127,8 +176,10 @@ std::vector<EventBase> Class::GetEvents(bool includeParent) const {
     auto curClass = _data;
 
     do {
-        auto end = curClass->events + curClass->event_count;
-        for (auto currentEvent = curClass->events; currentEvent != end; ++currentEvent) ret.emplace_back(currentEvent);
+        auto events = (const IL2CPP::EventInfo *) curClass->events; // const void* since 6000.5, typed pointer before
+        auto count = Internal::SafeCount(curClass->event_count, events);
+        auto end = events + count;
+        for (auto currentEvent = events; currentEvent != end; ++currentEvent) ret.emplace_back(currentEvent);
         if (includeParent) curClass = curClass->parent;
         else break;
     } while (curClass);
@@ -157,6 +208,8 @@ MethodBase Class::GetMethod(const std::string_view &name, const std::initializer
     TryInit();
 
     auto parameters = (uint8_t) parameterNames.size();
+
+    if (!Internal::il2cppMethods.il2cpp_method_get_param_name) return {};
 
     auto method = Internal::IterateMethods(*this, [&name, &parameters, &parameterNames](IL2CPP::MethodInfo *method) {
         if (name != method->name || method->parameters_count != parameters) return false;
@@ -203,8 +256,10 @@ PropertyBase Class::GetProperty(const std::string_view &name) const {
     auto curClass = _data;
 
     do {
-        auto end = curClass->properties + curClass->property_count;
-        for (auto currentProperty = curClass->properties; currentProperty != end; ++currentProperty) if (name == currentProperty->name) return currentProperty;
+        auto properties = (const IL2CPP::PropertyInfo *) curClass->properties; // const void* since 6000.5
+        auto count = Internal::SafeCount(curClass->property_count, properties);
+        auto end = properties + count;
+        for (auto currentProperty = properties; currentProperty != end; ++currentProperty) if (name == currentProperty->name) return currentProperty;
         curClass = curClass->parent;
     } while (curClass);
 
@@ -221,8 +276,10 @@ PropertyBase Class::GetProperty(const std::string_view& name, const CompileTimeC
     auto typeClass = type.ToIl2CppClass();
 
     do {
-        auto end = curClass->properties + curClass->property_count;
-        for (auto currentProperty = curClass->properties; currentProperty != end; ++currentProperty)
+        auto properties = (const IL2CPP::PropertyInfo *) curClass->properties; // const void* since 6000.5
+        auto count = Internal::SafeCount(curClass->property_count, properties);
+        auto end = properties + count;
+        for (auto currentProperty = properties; currentProperty != end; ++currentProperty)
             if (name == currentProperty->name && PropertyBase{currentProperty}.GetType() == typeClass) return currentProperty;
         curClass = curClass->parent;
     } while (curClass);
@@ -238,8 +295,10 @@ Class Class::GetInnerClass(const std::string_view &name) const {
     auto curClass = _data;
 
     do {
-        for (uint16_t i = 0; i < curClass->nested_type_count; ++i) {
-            auto cls = curClass->nestedTypes[i];
+        auto nestedTypes = (IL2CPP::Il2CppClass *const *) curClass->nestedTypes; // const void* since 6000.5
+        auto count = Internal::SafeCount(curClass->nested_type_count, nestedTypes);
+        for (uint16_t i = 0; i < count; ++i) {
+            auto cls = nestedTypes[i];
             if (name == cls->name) return cls;
         }
         curClass = curClass->parent;
@@ -256,8 +315,10 @@ FieldBase Class::GetField(const std::string_view &name) const {
     auto curClass = _data;
 
     do {
-        auto end = curClass->fields + curClass->field_count;
-        for (auto currentField = curClass->fields; currentField != end; ++currentField) {
+        auto fields = curClass->fields;
+        auto count = Internal::SafeCount(curClass->field_count, fields);
+        auto end = fields + count;
+        for (auto currentField = fields; currentField != end; ++currentField) {
             if (name != currentField->name) continue;
             return currentField;
         }
@@ -275,8 +336,10 @@ EventBase Class::GetEvent(const std::string_view &name) const {
     auto curClass = _data;
 
     do {
-        auto end = curClass->events + curClass->event_count;
-        for (auto currentEvent = curClass->events; currentEvent != end; ++currentEvent) {
+        auto events = (const IL2CPP::EventInfo *) curClass->events; // const void* since 6000.5
+        auto count = Internal::SafeCount(curClass->event_count, events);
+        auto end = events + count;
+        for (auto currentEvent = events; currentEvent != end; ++currentEvent) {
             if (name != currentEvent->name) continue;
             return currentEvent;
         }
@@ -298,6 +361,7 @@ Class Class::GetArray() const {
     BNM_LOG_ERR_IF(!_data, DBG_BNM_MSG_Class_Dead_Error);
     if (!_data) return {};
     TryInit();
+    if (!Internal::il2cppMethods.il2cpp_array_class_get) return {};
     return Internal::il2cppMethods.il2cpp_array_class_get(_data, 1);
 }
 
@@ -337,6 +401,7 @@ MonoType *Class::GetMonoType() const {
     BNM_LOG_ERR_IF(!_data, DBG_BNM_MSG_Class_Dead_Error);
     if (!_data) return {};
     TryInit();
+    if (!Internal::il2cppMethods.il2cpp_type_get_object) return {};
     return (MonoType *) Internal::il2cppMethods.il2cpp_type_get_object(GetIl2CppType());
 }
 
@@ -365,19 +430,22 @@ IL2CPP::Il2CppObject *Class::CreateNewInstance() const {
     if ((_data->flags & (0x00000080 | 0x00000020))) // TYPE_ATTRIBUTE_ABSTRACT | TYPE_ATTRIBUTE_INTERFACE
         BNM_LOG_WARN(DBG_BNM_MSG_Class_CreateNewInstance_Abstract_Warn, str().c_str());
 
+    if (!Internal::il2cppMethods.il2cpp_object_new) return nullptr;
     auto obj = Internal::il2cppMethods.il2cpp_object_new(_data);
     if (obj) memset((char*)obj + sizeof(IL2CPP::Il2CppObject), 0, _data->instance_size - sizeof(IL2CPP::Il2CppObject));
     return obj;
 }
 
 // Try initializing the class if it is alive
-void Class::TryInit() const { if (_data) Internal::il2cppMethods.Class$$Init(_data); }
+void Class::TryInit() const { if (_data && Internal::il2cppMethods.Class$$Init) Internal::il2cppMethods.Class$$Init(_data); }
 
 IL2CPP::Il2CppObject *Class::BoxObject(IL2CPP::Il2CppClass *_data, void *data) {
+    if (!Internal::il2cppMethods.il2cpp_value_box) return nullptr;
     return Internal::il2cppMethods.il2cpp_value_box(_data, data);
 }
 
 IL2CPP::Il2CppArray *Class::ArrayNew(IL2CPP::Il2CppClass *cls, IL2CPP::il2cpp_array_size_t length) {
+    if (!Internal::il2cppMethods.il2cpp_array_new) return nullptr;
     return Internal::il2cppMethods.il2cpp_array_new(cls, length);
 }
 
@@ -409,8 +477,8 @@ namespace CompileTimeClassProcessors {
 
         BNM::Image image{};
 
-        auto &assemblies = *Internal::il2cppMethods.Assembly$$GetAllAssemblies();
-        for (auto assembly: assemblies) {
+        auto &assemblies = Internal::GetAllAssemblies();
+        if (Internal::il2cppMethods.il2cpp_assembly_get_image) for (auto assembly: assemblies) {
             auto currentImage = Internal::il2cppMethods.il2cpp_assembly_get_image(assembly);
             if (!Internal::CompareImageName(currentImage, classInfo->_imageName)) continue;
             image = currentImage;

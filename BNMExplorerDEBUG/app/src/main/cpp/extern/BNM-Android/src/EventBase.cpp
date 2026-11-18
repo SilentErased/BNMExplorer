@@ -5,6 +5,7 @@ using namespace BNM;
 
 EventBase::EventBase(const IL2CPP::EventInfo *info) {
     if (!info) return;
+    _data = (IL2CPP::EventInfo *) info;
     _hasAdd = _hasRemove = _hasRaise = false;
     if (info->add && info->add->methodPointer) {
         _hasAdd = true;

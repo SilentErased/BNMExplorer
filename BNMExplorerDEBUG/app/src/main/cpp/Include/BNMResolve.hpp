@@ -29,8 +29,7 @@
 using namespace BNM;
 using namespace Structures::Unity;
 using namespace Structures::Mono;
-using namespace UnityEngine;
-
+using UnityEngine::Object;
 struct NamedObject;
 struct Component;
 struct GameObject;

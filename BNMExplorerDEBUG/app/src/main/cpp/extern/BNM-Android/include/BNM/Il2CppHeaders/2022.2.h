@@ -1,3 +1,4 @@
+const int METADATA_VERSION = 29;
 typedef struct Il2CppClass Il2CppClass;
 typedef struct Il2CppType Il2CppType;
 typedef struct EventInfo EventInfo;
@@ -142,6 +143,7 @@ typedef void (*Il2CppLogCallback)(const char*);
 typedef size_t(*Il2CppBacktraceFunc) (Il2CppMethodPointer* buffer, size_t maxSize);
 typedef struct Il2CppManagedMemorySnapshot Il2CppManagedMemorySnapshot;
 typedef uintptr_t il2cpp_array_size_t;
+typedef uint8_t (*Il2CppAndroidUpStateFunc)(const char* ifName, uint8_t* is_up);
 typedef void ( *SynchronizationContextCallback)(intptr_t arg);
 typedef void ( *CultureInfoChangedCallback)(const Il2CppChar* arg);
 typedef uint16_t Il2CppMethodSlot;
@@ -1308,7 +1310,7 @@ typedef struct Il2CppClass
     __attribute__((aligned(8))) size_t cctor_thread;
     Il2CppMetadataGenericContainerHandle genericContainerHandle;
     uint32_t instance_size;
-	uint32_t stack_slot_size;
+    uint32_t stack_slot_size;
     uint32_t actualSize;
     uint32_t element_size;
     int32_t native_size;
@@ -1384,6 +1386,7 @@ typedef struct Il2CppClass_1 {
 #endif
     Il2CppMetadataGenericContainerHandle genericContainerHandle;
     uint32_t instance_size;
+    uint32_t stack_slot_size;
     uint32_t actualSize;
     uint32_t element_size;
     int32_t native_size;

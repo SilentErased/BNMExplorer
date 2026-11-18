@@ -4,59 +4,74 @@
 <meta name="theme-color" content="#5865F2">
 
 <div align="center">
-    <img src="logo.png" width="15%" alt="logo">
-    <h1 align="center">BNM Explorer</h1>
-    <p>A web-based runtime inspector and debugger for IL2CPP Unity games on Android/VR/Mobiles.</p>
-    <a href="https://github.com/SilentErased/BNMExplorer/releases/latest"><b>✦ Download latest release ✦</b></a>
+  <img src="Banner.png" />
+
+  # BNM Explorer
+
+  [![Releases](https://img.shields.io/github/v/release/SilentErased/BNMExplorer.svg?label=Release)](https://github.com/SilentErased/BNMExplorer/releases/latest)
+  [![Downloads](https://img.shields.io/github/downloads/SilentErased/BNMExplorer/total?label=Downloads)](https://github.com/SilentErased/BNMExplorer/releases)
+  [![License](https://img.shields.io/github/license/SilentErased/BNMExplorer.svg?label=License)](https://github.com/SilentErased/BNMExplorer/blob/main/LICENSE)
+
 </div>
 
 <br>
 
+A web-based runtime inspector and debugger for IL2CPP Unity games on Android/VR/Mobile. Runs an embedded HTTP server inside the game process, so you can explore and modify the game live from any browser.
+
 <div align="center">
-    <img src="Uc5uSAT.png" alt="demonstration" width="100%">
+  <img src="Uc5uSAT.png" alt="demonstration" width="100%">
 </div>
 
-### Features
-* **Web-Based UI**: Accessible via any web browser on your PC or phone. No heavy desktop client required.
+> [!WARNING]
+> This tool is intended for **IL2CPP Unity games on Android**. The target game must be **patched with the native mod** before BNM Explorer can be used.
+
+## Features
+
+* **Web-Based UI**: Accessible from any web browser on your PC or phone. No heavy desktop client required.
 * **Assembly Explorer**: Browse loaded assemblies, namespaces, classes, methods, and fields in a `dnSpy`-like interface.
-* **Scene Hierarchy**: Real-time view of the Unity Scene. Create, delete, and manage GameObjects dynamically.
-* **Inspector**: 
+* **Scene Hierarchy**: Real-time view of the Unity scene. Create, delete, and manage GameObjects dynamically.
+* **Inspector**:
   * Edit `Transform` (Position, Rotation, Scale).
   * View and modify public/private fields and properties.
   * Supports `int`, `float`, `bool`, `string`, `Vector3`, `Color`, and more.
 * **Method Invoker**: Call static or instance methods directly from the browser with custom arguments.
 * **Instance Tracking**: Find live instances of any class in memory.
 * **Component System**: Add or remove components at runtime.
-* **Runtime Code Execution**: Run lua code
+* **Runtime Code Execution**: Run Lua code.
 
-### Key Advantages
-BNM Explorer runs an embedded HTTP server directly inside the game process, allowing for direct memory manipulation without external debugging overhead.
+## Requirements
 
-### Requirements
-* Patch the target game and insert our native mod.
+* Patch the target game and insert the native mod.
+* Host machine and target device on the **same Wi-Fi network**.
 
----
+## Getting Started
 
-### Connection Guide
+Download the [latest release](https://github.com/SilentErased/BNMExplorer/releases/latest), patch your game, then follow the steps below.
 
-Once the native mod is injected, follow these steps to access the interface:
+### 1. Identify the device IP
 
-#### 1. Identify Device IP
-Execute the following command to retrieve your device's local IP address:
 ```bash
 adb shell ip addr show wlan0
 ```
 
-Locate the line starting with `inet` (e.g., `inet 192.168.1.101/24`).
+Locate the line starting with `inet` (e.g. `inet 192.168.1.101/24`).
 
 > [!IMPORTANT]
-> Ensure both your host machine and the target device are connected to the same Wi-Fi network.
+> Make sure both your host machine and the target device are connected to the same Wi-Fi network.
 
-#### 2. Access the Interface
+### 2. Open the interface
 
-Open your web browser and navigate to the following address:
-`http://<DEVICE_IP>:8080`
+Open your web browser and go to:
+
+```
+http://<DEVICE_IP>:8080
+```
 
 **Example:** `http://192.168.1.101:8080`
-**(If you are doing it from VR just open `https://127.0.0.1:8080`)**
 
+> [!TIP]
+> On VR (standalone headset), just open `https://127.0.0.1:8080` in the headset's browser.
+
+## License
+
+BNM Explorer is licensed under the [LICENSE](LICENSE) file in this repository.

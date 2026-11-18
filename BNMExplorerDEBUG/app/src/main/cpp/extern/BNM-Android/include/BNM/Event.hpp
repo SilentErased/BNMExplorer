@@ -1,10 +1,13 @@
 #pragma once
 
+#include <type_traits>
+#include <functional>
+#include <utility>
+
 #include "UserSettings/GlobalSettings.hpp"
 #include "EventBase.hpp"
 #include "Utils.hpp"
-
-#include <type_traits>
+#include "Delegates.hpp"
 
 // NOLINTBEGIN
 namespace BNM {
@@ -78,10 +81,35 @@ namespace BNM {
         }
 
         /**
+            @brief Add callable lambda/functor directly to event.
+            @param callable Functor or lambda to invoke.
+            @return Pointer to newly created Delegate<Ret>.
+        */
+        template<typename F, typename = std::enable_if_t<!std::is_same_v<std::decay_t<F>, Delegate<Ret> *>>>
+        inline Delegate<Ret> *Add(F &&callable) {
+            if constexpr (std::is_void_v<Ret>) {
+                auto del = (Delegate<Ret> *) CreateAction<Parameters...>(std::forward<F>(callable));
+                Add(del);
+                return del;
+            } else {
+                auto del = CreateFunc<Ret, Parameters...>(std::forward<F>(callable));
+                Add(del);
+                return del;
+            }
+        }
+
+        /**
             @brief Operator for adding delegate to event.
             @param delegate Delegate to add
         */
         inline Event<Ret, Parameters...> &operator+=(Delegate<Ret> *delegate) { Add(delegate); return *this; }
+
+        /**
+            @brief Operator for adding callable lambda/functor to event.
+            @param callable Functor or lambda to invoke.
+        */
+        template<typename F, typename = std::enable_if_t<!std::is_same_v<std::decay_t<F>, Delegate<Ret> *>>>
+        inline Event<Ret, Parameters...> &operator+=(F &&callable) { Add(std::forward<F>(callable)); return *this; }
 
         /**
             @brief Remove delegate from event.
@@ -133,6 +161,102 @@ namespace BNM {
     };
 
 #pragma pack(pop)
+
+    /**
+        @brief RAII scoped event listener guard.
+        Automatically unregisters / removes listener when the guard goes out of scope.
+    */
+    class ScopedEventListener {
+    private:
+        std::function<void()> _cleanup{};
+
+    public:
+        constexpr ScopedEventListener() = default;
+
+        /**
+            @brief Constructs a scoped listener from a custom cleanup callable.
+            @param cleanup Functor to invoke upon destruction.
+        */
+        explicit ScopedEventListener(std::function<void()> cleanup) : _cleanup(std::move(cleanup)) {}
+
+        /**
+            @brief Constructs a scoped listener bound to an IL2CPP Event and Delegate pointer.
+            @param event Reference to the BNM::Event.
+            @param del Delegate pointer to register and automatically unregister on scope exit.
+        */
+        template<typename Ret, typename ...Parameters>
+        ScopedEventListener(Event<Ret, Parameters...> &event, Delegate<Ret> *del) {
+            if (del) {
+                event += del;
+                _cleanup = [&event, del]() {
+                    event -= del;
+                };
+            }
+        }
+
+        ScopedEventListener(ScopedEventListener &&other) noexcept : _cleanup(std::move(other._cleanup)) {
+            other._cleanup = nullptr;
+        }
+
+        ScopedEventListener &operator=(ScopedEventListener &&other) noexcept {
+            if (this != &other) {
+                Reset();
+                _cleanup = std::move(other._cleanup);
+                other._cleanup = nullptr;
+            }
+            return *this;
+        }
+
+        ScopedEventListener(const ScopedEventListener &) = delete;
+        ScopedEventListener &operator=(const ScopedEventListener &) = delete;
+
+        ~ScopedEventListener() {
+            Reset();
+        }
+
+        /**
+            @brief Manually unregisters the listener before the scope ends.
+        */
+        inline void Reset() {
+            if (_cleanup) {
+                auto cleanup = std::move(_cleanup);
+                _cleanup = nullptr;
+                cleanup();
+            }
+        }
+
+        /**
+            @brief Releases ownership without unregistering the listener.
+        */
+        inline void Release() {
+            _cleanup = nullptr;
+        }
+
+        /**
+            @brief Checks if the guard is actively tracking a listener.
+            @return True if listener is active.
+        */
+        [[nodiscard]] inline bool IsActive() const noexcept {
+            return _cleanup != nullptr;
+        }
+    };
+
+    /**
+        @brief Convenience function to attach a scoped listener to a BNM::Event using a callable lambda.
+        @tparam Ret Return type.
+        @tparam Parameters Event parameters.
+        @tparam F Callable functor/lambda type.
+        @param event Target BNM::Event.
+        @param callable Callable to invoke.
+        @return ScopedEventListener guard managing the subscription lifecycle.
+    */
+    template<typename Ret = void, typename ...Parameters, typename F>
+    inline ScopedEventListener Listen(Event<Ret, Parameters...> &event, F &&callable) {
+        auto del = event.Add(std::forward<F>(callable));
+        return ScopedEventListener([&event, del]() {
+            event -= del;
+        });
+    }
 
 }
 // NOLINTEND

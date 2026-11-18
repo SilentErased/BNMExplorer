@@ -3,6 +3,7 @@
 
 using namespace BNM;
 
+#if UNITY_VER >= 192
 int Internal::BNM_il2cpp_init(const char *domain_name) {
     if (states.lateInitAllowed) Unhook(BNM_Class$$FromIl2CppType_origin);
 
@@ -14,6 +15,18 @@ int Internal::BNM_il2cpp_init(const char *domain_name) {
 
     return ret;
 }
+#else
+// il2cpp_init returned void before Unity 2019.2
+void Internal::BNM_il2cpp_init(const char *domain_name) {
+    if (states.lateInitAllowed) Unhook(BNM_Class$$FromIl2CppType_origin);
+
+    old_BNM_il2cpp_init(domain_name);
+
+    Unhook(BNM_il2cpp_init_origin);
+
+    Load();
+}
+#endif
 
 IL2CPP::Il2CppClass *Internal::BNM_Class$$FromIl2CppType(IL2CPP::Il2CppReflectionType *type) {
     auto klass = old_BNM_Class$$FromIl2CppType(type);
@@ -25,7 +38,10 @@ IL2CPP::Il2CppClass *Internal::BNM_Class$$FromIl2CppType(IL2CPP::Il2CppReflectio
         Internal::il2cppMethods.il2cpp_thread_current = (decltype(Internal::il2cppMethods.il2cpp_thread_current)) GetIl2CppMethod(BNM_OBFUSCATE_TMP(BNM_IL2CPP_API_il2cpp_thread_current));
     }
 
+    if (!Internal::il2cppMethods.il2cpp_domain_get || !Internal::il2cppMethods.il2cpp_thread_current) return klass;
+
     auto domain = Internal::il2cppMethods.il2cpp_domain_get();
+    if (!domain) return klass;
     auto thread = Internal::il2cppMethods.il2cpp_thread_current(domain);
 
     // Will be true after il2cpp_init
@@ -124,7 +140,7 @@ IL2CPP::Il2CppImage *Internal::ClassesManagement::new_GetImageFromIndex(IL2CPP::
 // In Unity 2017 and below, the names are stored as a number in the metadata, so we can't use them
 // But we can check the name by images
 IL2CPP::Il2CppAssembly *Internal::ClassesManagement::Assembly$$Load(const char *name) {
-    auto &assemblies = *il2cppMethods.Assembly$$GetAllAssemblies();
+    auto &assemblies = Internal::GetAllAssemblies();
 
     for (auto assembly : assemblies) {
 

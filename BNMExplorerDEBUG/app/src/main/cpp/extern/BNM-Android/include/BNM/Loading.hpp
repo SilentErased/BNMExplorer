@@ -1,6 +1,11 @@
 #pragma once
 
+#ifdef __ANDROID__
 #include <jni.h>
+#else
+typedef void *JNIEnv;
+typedef void *jobject;
+#endif
 
 #include "UserSettings/GlobalSettings.hpp"
 
@@ -94,7 +99,20 @@ namespace BNM::Loading {
     void TrySetupByUsersFinder();
 
     /**
+        @brief Check if BNM and IL2CPP have finished loading and initialization.
+        @return True if loaded and ready.
+    */
+    [[nodiscard]] bool IsLoaded() noexcept;
+
+    /**
+        @brief Get the loaded handle to libil2cpp.so.
+        @return Raw dlfcn library handle, or nullptr if not loaded via handle/JNI.
+    */
+    [[nodiscard]] void *GetIl2CppLibraryHandle() noexcept;
+
+    /**
         @brief Add event that will be called from il2cpp thread when il2cpp and BNM will be fully loaded.
+        @note If BNM is already loaded, the event is invoked immediately.
     */
     void AddOnLoadedEvent(void (*event)());
 

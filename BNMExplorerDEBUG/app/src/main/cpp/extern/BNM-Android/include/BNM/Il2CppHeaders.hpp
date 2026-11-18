@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <cstddef>
+
 namespace BNM {
     /// @cond
     namespace IL2CPP {
@@ -37,11 +40,25 @@ namespace BNM {
 #include "Il2CppHeaders/2022.1.h"
 #elif UNITY_VER >= 222 && UNITY_VER <= 223
 #include "Il2CppHeaders/2022.2.h"
-#elif UNITY_VER >= 231
+#elif UNITY_VER == 231
 #include "Il2CppHeaders/2023.1.h"
+#elif UNITY_VER >= 232 && UNITY_VER < 600
+#include "Il2CppHeaders/2023.2.h"
+#elif UNITY_VER >= 606
+#include "Il2CppHeaders/6000.6.h"
+#elif UNITY_VER == 605
+#include "Il2CppHeaders/6000.5.h"
+#elif UNITY_VER >= 600
+#include "Il2CppHeaders/6000.0.h"
 #else
-#include "Il2CppHeaders/2023.1.h"
+#include "Il2CppHeaders/6000.0.h"
 static_assert(false, "Setup UNITY_VER in GlobalSettings.hpp");
+#endif
+
+#if UNITY_VER < 231
+    // Il2CppGCHandle is declared as void* in the Unity headers only since 2023.1.
+    // Older Unity versions pass GC handles as uint32_t; void* is ABI-compatible as a carrier.
+    typedef void *Il2CppGCHandle;
 #endif
     }
     /// @endcond

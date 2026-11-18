@@ -2,8 +2,9 @@
 
 #include "UserSettings/GlobalSettings.hpp"
 #include "Il2CppHeaders.hpp"
-#include "UnityStructures.hpp"
 #include "MethodBase.hpp"
+
+namespace BNM::UnityEngine { struct Object; }
 
 // NOLINTBEGIN
 namespace BNM {

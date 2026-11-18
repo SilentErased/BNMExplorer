@@ -131,6 +131,7 @@ namespace BNM::Structures::Unity {
 namespace BNM::UnityEngine {
     BNM::Class UnityEventBase::GetArgumentType(PersistentCall *call) {
         auto type = Internal::vmData.UnityEngine$$Object;
+        if (!call || !call->m_Arguments) return type;
         auto typeName = call->m_Arguments->m_ObjectArgumentAssemblyTypeName;
         if (!typeName->IsNullOrEmpty()) if (auto t = Internal::vmData.Type$$GetType(typeName); t != nullptr) type = t;
 

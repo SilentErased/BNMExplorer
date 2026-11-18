@@ -6,9 +6,15 @@ using namespace BNM;
 
 // For static fields of streams
 namespace BNM::PRIVATE_FieldUtils {
-    void GetStaticValue(IL2CPP::FieldInfo *info, void *value) { return Internal::il2cppMethods.il2cpp_field_static_get_value(info, value); }
+    void GetStaticValue(IL2CPP::FieldInfo *info, void *value) {
+        if (!Internal::il2cppMethods.il2cpp_field_static_get_value) return;
+        return Internal::il2cppMethods.il2cpp_field_static_get_value(info, value);
+    }
 
-    void SetStaticValue(IL2CPP::FieldInfo *info, void *value) { return Internal::il2cppMethods.il2cpp_field_static_set_value(info, value); }
+    void SetStaticValue(IL2CPP::FieldInfo *info, void *value) {
+        if (!Internal::il2cppMethods.il2cpp_field_static_set_value) return;
+        return Internal::il2cppMethods.il2cpp_field_static_set_value(info, value);
+    }
 }
 
 static bool CheckIsFieldStatic(IL2CPP::FieldInfo *field) {
@@ -20,11 +26,11 @@ static bool CheckIsFieldStatic(IL2CPP::FieldInfo *field) {
 FieldBase::FieldBase(IL2CPP::FieldInfo *info) {
     if (!info) return;
 
-    _isConst = (info->type->attrs & 0x0040) != 0; // FIELD_ATTRIBUTE_LITERAL
+    _isConst = info->type && (info->type->attrs & 0x0040) != 0; // FIELD_ATTRIBUTE_LITERAL
     _isStatic = !_isConst && CheckIsFieldStatic(info);
     _data = info;
     _isThreadStatic = _data->offset == -1;
-    _isInStruct = Class(info->parent).GetIl2CppType()->type == IL2CPP::IL2CPP_TYPE_VALUETYPE;
+    if (info->parent) if (auto parentType = Class(info->parent).GetIl2CppType()) _isInStruct = parentType->type == IL2CPP::IL2CPP_TYPE_VALUETYPE;
 }
 
 FieldBase &FieldBase::SetInstance(IL2CPP::Il2CppObject *val)  {

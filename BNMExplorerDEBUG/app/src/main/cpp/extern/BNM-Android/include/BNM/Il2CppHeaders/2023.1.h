@@ -1,3 +1,4 @@
+const int METADATA_VERSION = 29;
 typedef struct Il2CppClass Il2CppClass;
 typedef struct Il2CppType Il2CppType;
 typedef struct EventInfo EventInfo;
@@ -12,6 +13,7 @@ typedef struct Il2CppImage Il2CppImage;
 typedef struct Il2CppException Il2CppException;
 typedef struct Il2CppProfiler Il2CppProfiler;
 typedef struct Il2CppObject Il2CppObject;
+typedef struct Il2CppReflectionField Il2CppReflectionField;
 typedef struct Il2CppReflectionMethod Il2CppReflectionMethod;
 typedef struct Il2CppReflectionType Il2CppReflectionType;
 typedef struct Il2CppString Il2CppString;
@@ -143,6 +145,7 @@ typedef size_t(*Il2CppBacktraceFunc) (Il2CppMethodPointer* buffer, size_t maxSiz
 typedef struct Il2CppManagedMemorySnapshot Il2CppManagedMemorySnapshot;
 typedef uintptr_t il2cpp_array_size_t;
 typedef void* Il2CppGCHandle;
+typedef uint8_t (*Il2CppAndroidUpStateFunc)(const char* ifName, uint8_t* is_up);
 typedef void ( *SynchronizationContextCallback)(intptr_t arg);
 typedef void ( *CultureInfoChangedCallback)(const Il2CppChar* arg);
 typedef uint16_t Il2CppMethodSlot;
@@ -1310,7 +1313,7 @@ typedef struct Il2CppClass
     __attribute__((aligned(8))) size_t cctor_thread;
     Il2CppMetadataGenericContainerHandle genericContainerHandle;
     uint32_t instance_size;
-	uint32_t stack_slot_size;
+    uint32_t stack_slot_size;
     uint32_t actualSize;
     uint32_t element_size;
     int32_t native_size;
@@ -1376,7 +1379,7 @@ typedef struct Il2CppClass_0 {
 typedef struct Il2CppClass_1 {
     struct Il2CppClass** typeHierarchy;
     void * unity_user_data;
-    uint32_t initializationExceptionGCHandle;
+    Il2CppGCHandle initializationExceptionGCHandle;
     uint32_t cctor_started;
     uint32_t cctor_finished_or_no_cctor;
 #ifdef IS_32BIT
@@ -1386,6 +1389,7 @@ typedef struct Il2CppClass_1 {
 #endif
     Il2CppMetadataGenericContainerHandle genericContainerHandle;
     uint32_t instance_size;
+    uint32_t stack_slot_size;
     uint32_t actualSize;
     uint32_t element_size;
     int32_t native_size;
@@ -1406,7 +1410,6 @@ typedef struct Il2CppClass_1 {
     uint8_t genericRecursionDepth;
     uint8_t rank;
     uint8_t minimumAlignment;
-    uint8_t naturalAligment;
     uint8_t packingSize;
     uint8_t initialized_and_no_error : 1;
     uint8_t initialized : 1;
@@ -1880,7 +1883,7 @@ typedef struct Il2CppInternalThread
     int abort_state_handle;
     uint64_t tid;
     intptr_t debugger_thread;
-    void** static_data;
+    void* static_data;
     void* runtime_thread_info;
     Il2CppObject* current_appcontext;
     Il2CppObject* root_domain_thread;

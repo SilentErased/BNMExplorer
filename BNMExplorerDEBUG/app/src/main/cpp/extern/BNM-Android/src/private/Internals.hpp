@@ -20,6 +20,10 @@
 #include <shared_mutex>
 #endif
 
+#ifdef BNM_CLASSES_MANAGEMENT
+#include <unordered_set>
+#endif
+
 /// @cond
 namespace BNM::Internal {
 
@@ -53,7 +57,9 @@ namespace BNM::Internal {
         BNM::IL2CPP::Il2CppImage *(*il2cpp_get_corlib)(){};
         BNM::IL2CPP::Il2CppClass *(*il2cpp_class_from_name)(const BNM::IL2CPP::Il2CppImage *, const char *, const char *){};
         BNM::IL2CPP::Il2CppImage *(*il2cpp_assembly_get_image)(const BNM::IL2CPP::Il2CppAssembly *){};
+#if UNITY_VER >= 183
         BNM::IL2CPP::Il2CppClass *(*il2cpp_image_get_class)(const BNM::IL2CPP::Il2CppImage *, unsigned int){};
+#endif
         const char *(*il2cpp_method_get_param_name)(const BNM::IL2CPP::MethodInfo *, uint32_t){};
         BNM::IL2CPP::Il2CppClass *(*il2cpp_class_from_il2cpp_type)(const BNM::IL2CPP::Il2CppType *){};
         BNM::IL2CPP::Il2CppClass *(*il2cpp_array_class_get)(const BNM::IL2CPP::Il2CppClass *, uint32_t){};
@@ -67,11 +73,44 @@ namespace BNM::Internal {
         void *(*il2cpp_resolve_icall)(const char *){};
         void *(*il2cpp_runtime_invoke)(BNM::IL2CPP::MethodInfo *, void *, void **, BNM::IL2CPP::Il2CppException **){};
         IL2CPP::Il2CppDomain *(*il2cpp_domain_get)(){};
+        const BNM::IL2CPP::Il2CppAssembly **(*il2cpp_domain_get_assemblies)(const BNM::IL2CPP::Il2CppDomain *, size_t *){};
         IL2CPP::Il2CppThread *(*il2cpp_thread_current)(IL2CPP::Il2CppDomain *){};
         IL2CPP::Il2CppThread *(*il2cpp_thread_attach)(IL2CPP::Il2CppDomain *){};
         void (*il2cpp_thread_detach)(IL2CPP::Il2CppThread *){};
+#if UNITY_VER >= 212
         void *(*il2cpp_gc_alloc_fixed)(size_t){};
         void (*il2cpp_gc_free_fixed)(void*){};
+#endif
+
+        // GC handles (canonical Unity names)
+        BNM::IL2CPP::Il2CppGCHandle (*il2cpp_gchandle_new)(BNM::IL2CPP::Il2CppObject *, bool){};
+        void (*il2cpp_gchandle_free)(BNM::IL2CPP::Il2CppGCHandle){};
+        BNM::IL2CPP::Il2CppObject *(*il2cpp_gchandle_get_target)(BNM::IL2CPP::Il2CppGCHandle){};
+        BNM::IL2CPP::Il2CppGCHandle (*il2cpp_gchandle_new_weakref)(BNM::IL2CPP::Il2CppObject *, bool){};
+#if UNITY_VER >= 193
+        void (*il2cpp_gchandle_foreach_get_target)(void (*func)(void *data, void *userData), void *userData){};
+#endif
+
+        // Class runtime helpers
+        void (*il2cpp_runtime_class_init)(BNM::IL2CPP::Il2CppClass *){};
+        BNM::IL2CPP::Il2CppClass *(*il2cpp_object_get_class)(BNM::IL2CPP::Il2CppObject *){};
+        const BNM::IL2CPP::Il2CppType *(*il2cpp_class_get_type)(BNM::IL2CPP::Il2CppClass *){};
+        const char *(*il2cpp_class_get_name)(BNM::IL2CPP::Il2CppClass *){};
+        const char *(*il2cpp_class_get_namespace)(BNM::IL2CPP::Il2CppClass *){};
+        const BNM::IL2CPP::Il2CppImage *(*il2cpp_class_get_image)(BNM::IL2CPP::Il2CppClass *){};
+        BNM::IL2CPP::Il2CppClass *(*il2cpp_class_get_parent)(BNM::IL2CPP::Il2CppClass *){};
+        bool (*il2cpp_class_is_valuetype)(const BNM::IL2CPP::Il2CppClass *){};
+        bool (*il2cpp_class_is_enum)(const BNM::IL2CPP::Il2CppClass *){};
+        const BNM::IL2CPP::MethodInfo *(*il2cpp_class_get_method_from_name)(BNM::IL2CPP::Il2CppClass *, const char *, int){};
+        BNM::IL2CPP::FieldInfo *(*il2cpp_class_get_field_from_name)(BNM::IL2CPP::Il2CppClass *, const char *){};
+#if UNITY_VER >= 191
+        int (*il2cpp_class_get_userdata_offset)(){};
+        void (*il2cpp_class_set_userdata)(BNM::IL2CPP::Il2CppClass *, void *){};
+#endif
+
+        // String helpers
+        BNM::Structures::Mono::String *(*il2cpp_string_new_len)(const char *, uint32_t){};
+        BNM::Structures::Mono::String *(*il2cpp_string_new_utf16)(const BNM::IL2CPP::Il2CppChar *, int32_t){};
 
         // Direct il2cpp API methods
         std::vector<BNM::IL2CPP::Il2CppAssembly *> *(*Assembly$$GetAllAssemblies)(){};
@@ -88,6 +127,20 @@ namespace BNM::Internal {
     extern std::map<uint32_t, BNM::Class> customListsMap;
     extern int32_t finalizerSlot;
 
+#ifdef BNM_ALLOW_MULTI_THREADING_SYNC
+    extern std::shared_mutex customListsMapMutex;
+#endif
+
+    // Allocation tracking sets (replaces BNM_CLASS_ALLOCATED_* flag bits on klass->flags).
+    // Flags on klass->flags belong to the runtime; writing custom bits there risks false
+    // positives when the runtime re-initializes a class. These sets are owned by BNM only.
+#ifdef BNM_CLASSES_MANAGEMENT
+    extern std::unordered_set<BNM::IL2CPP::Il2CppClass *> bnmAllocatedClasses;  // methods, fields, hierarchy
+    extern std::unordered_set<BNM::IL2CPP::Il2CppClass **> bnmAllocatedInnerLists; // nestedTypes arrays
+#endif
+
+    std::vector<BNM::IL2CPP::Il2CppAssembly *> &GetAllAssemblies();
+
     void Image$$GetTypes(const IL2CPP::Il2CppImage *image, bool exportedOnly, std::vector<BNM::IL2CPP::Il2CppClass *> *target);
 
     void Load();
@@ -96,8 +149,14 @@ namespace BNM::Internal {
     void *GetIl2CppMethod(const char *methodName);
 
     extern void *BNM_il2cpp_init_origin;
+#if UNITY_VER >= 192
     extern int (*old_BNM_il2cpp_init)(const char *);
     int BNM_il2cpp_init(const char *domain_name);
+#else
+    // il2cpp_init returned void before Unity 2019.2
+    extern void (*old_BNM_il2cpp_init)(const char *);
+    void BNM_il2cpp_init(const char *domain_name);
+#endif
 
     extern void *BNM_Class$$FromIl2CppType_origin;
     extern IL2CPP::Il2CppClass *(*old_BNM_Class$$FromIl2CppType)(IL2CPP::Il2CppReflectionType*);
@@ -119,11 +178,18 @@ namespace BNM::Internal {
     MethodBase TryMakeGenericMethod(const MethodBase &genericMethod, const std::vector<CompileTimeClass> &templateTypes);
     Class GetPointer(Class target);
     Class GetReference(Class target);
+    // A class that failed to init keeps sentinel counts ((uint16_t)-1 = 65535) and a null
+    // array; looping with the raw count would cause a massive over-read. Returns the safe count.
+    inline uint16_t SafeCount(uint16_t count, const void *arr) {
+        return (count == (uint16_t)-1 || !arr) ? 0 : count;
+    }
+
     template <class CompareMethod>
     IL2CPP::MethodInfo *IterateMethods(Class target, CompareMethod compare) {
         auto curClass = target._data;
         do {
-            for (uint16_t i = 0; i < curClass->method_count; ++i) {
+            auto count = SafeCount(curClass->method_count, curClass->methods);
+            for (uint16_t i = 0; i < count; ++i) {
                 auto method = curClass->methods[i];
                 if (compare((IL2CPP::MethodInfo *)method)) return (IL2CPP::MethodInfo *) method;
             }
@@ -177,7 +243,7 @@ namespace BNM::Internal {
 
             inline void AddClass(BNM_PTR image, IL2CPP::Il2CppClass *cls) {
 #ifdef BNM_ALLOW_MULTI_THREADING_SYNC
-                std::shared_lock lock(classesFindAccessMutex);
+                std::unique_lock lock(classesFindAccessMutex);
 #endif
                 (*_map)[image].emplace_back(cls);
             }
@@ -210,6 +276,7 @@ namespace BNM::Internal {
 #endif
 
     inline bool CompareImageName(IL2CPP::Il2CppImage *image, const std::string_view &name) {
+        if (!image || !image->name) return false;
         bool value = image->name == name;
 #if UNITY_VER >= 171
         value = value || image->nameNoExt == name;

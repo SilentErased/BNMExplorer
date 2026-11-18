@@ -1,3 +1,4 @@
+const int METADATA_VERSION = 23;
 typedef uint32_t Il2CppMethodSlot;
 const int ipv6AddressSize = 16;
 typedef int32_t il2cpp_hresult_t;
@@ -94,7 +95,13 @@ typedef struct
     void* (*realloc_func)(void *ptr, size_t size);
     void* (*aligned_realloc_func)(void *ptr, size_t size, size_t alignment);
 } Il2CppMemoryCallbacks;
+#if _MSC_VER
+typedef wchar_t Il2CppChar;
+#elif __has_feature(cxx_unicode_literals)
+typedef char16_t Il2CppChar;
+#else
 typedef uint16_t Il2CppChar;
+#endif
 typedef char Il2CppNativeChar;
 typedef void (*il2cpp_register_object_callback)(Il2CppObject** arr, int size, void* userdata);
 typedef void (*il2cpp_WorldChangedCallback)();
@@ -854,7 +861,7 @@ typedef struct Il2CppClass
     uint8_t is_blittable : 1;
     uint8_t is_import_or_windows_runtime : 1;
     uint8_t is_vtable_initialized : 1;
-    VirtualInvokeData vtable[32];
+    VirtualInvokeData vtable[0];
 } Il2CppClass;
 
 typedef struct Il2CppClass_0 {
@@ -934,7 +941,7 @@ typedef struct __attribute__((aligned(8))) Il2CppClass_Merged {
     void* static_fields;
     const Il2CppRGCTXData* rgctx_data;
     struct Il2CppClass_1 _1;
-    VirtualInvokeData vtable[32];
+    VirtualInvokeData vtable[0];
 } Il2CppClass_Merged;
 
 typedef struct Il2CppTypeDefinitionSizes
@@ -1092,7 +1099,7 @@ typedef struct Il2CppMetadataField
 } Il2CppMetadataField;
 typedef enum Il2CppMetadataTypeFlags
 {
-    kNone = 0,
+    il2cpp_kNone = 0,
     kValueType = 1 << 0,
     kArray = 1 << 1,
     kArrayRankMask = 0xFFFF0000
@@ -1367,7 +1374,6 @@ typedef struct Il2CppReflectionPointer
 typedef struct Il2CppIntPtr
 {
     void* m_value;
-    static Il2CppIntPtr Zero;
 } Il2CppIntPtr;
 typedef struct Il2CppInternalThread
 {
@@ -1990,7 +1996,7 @@ typedef enum Il2CppVarType
     IL2CPP_VT_ILLEGALMASKED = 0xfff,
     IL2CPP_VT_TYPEMASK = 0xfff,
 } Il2CppVarType;
-typedef struct Il2CppVariant
+struct Il2CppVariant
 {
     union
     {
@@ -2089,55 +2095,44 @@ typedef struct Il2CppHStringHeader
 } Il2CppHStringHeader;
 typedef struct Il2CppIUnknown
 {
-    static const Il2CppGuid IID;
 } Il2CppIUnknown;
 typedef struct Il2CppISequentialStream
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppISequentialStream;
 typedef struct Il2CppIStream
 {
  Il2CppISequentialStream ISequentialStream;
-    static const Il2CppGuid IID;
 } Il2CppIStream;
 typedef struct Il2CppIMarshal
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIMarshal;
 typedef struct Il2CppIManagedObject
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIManagedObject;
 typedef struct Il2CppIManagedObjectHolder
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIManagedObjectHolder;
 typedef struct Il2CppIInspectable
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIInspectable;
 typedef struct Il2CppIActivationFactory
 {
  Il2CppIInspectable IInspectable;
-    static const Il2CppGuid IID;
 } Il2CppIActivationFactory;
 typedef struct Il2CppIRestrictedErrorInfo
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIRestrictedErrorInfo;
 typedef struct Il2CppILanguageExceptionErrorInfo
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppILanguageExceptionErrorInfo;
 typedef struct Il2CppIAgileObject
 {
  Il2CppIUnknown IUnknown;
-    static const Il2CppGuid IID;
 } Il2CppIAgileObject;
