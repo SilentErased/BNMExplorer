@@ -2425,7 +2425,7 @@ static void start_server() {
         for (auto& img : Image::GetImages()) {
             auto* d = img.GetInfo();
             if (!img.IsValid() || !d || !is_valid_pointer(d) || !d->name || !is_valid_pointer(d->name)) continue;
-            out << "// Assembly: " << d->name << "\n\n";
+            out << "// Assembly: " << d->name << "\n";
             for (auto& cls : img.GetClasses(false)) {
                 auto* r = cls.GetClass();
                 if (!cls.IsValid() || !r || !is_valid_pointer(r) || !r->name || !is_valid_pointer(r->name)) continue;
@@ -2446,8 +2446,7 @@ static void start_server() {
                     if (!fi || !is_valid_pointer(fi) || !fi->name || !is_valid_pointer(fi->name)) continue;
                     std::string tn = (fi->type && is_valid_pointer(fi->type)) ? type_name(fi->type) : "?";
                     bool is_static = fi->type && is_valid_pointer(fi->type) && (fi->type->attrs & 0x10);
-                    out << indent << "    // offset 0x" << std::hex << fi->offset << std::dec << "\n";
-                    out << indent << "    public " << (is_static ? "static " : "") << tn << " " << fi->name << ";\n";
+                    out << indent << "    public " << (is_static ? "static " : "") << tn << " " << fi->name << "; // 0x" << std::hex << fi->offset << std::dec << "\n";
                 }
                 for (auto& p : cls.GetProperties(false)) {
                     auto* pi = p._data;
@@ -2464,14 +2463,14 @@ static void start_server() {
                     std::string ret = (mi->return_type && is_valid_pointer(mi->return_type)) ? type_name(mi->return_type) : "?";
                     bool is_static = mi->flags & 0x10;
                     char ab[32] = {};
-                    if (mi->methodPointer) snprintf(ab, sizeof(ab), "// %llX\n%s    ", (unsigned long long)(uintptr_t)mi->methodPointer, indent.c_str());
-                    out << indent << "    " << ab << "public " << (is_static ? "static " : "") << ret << " " << mi->name << "(";
+                    if (mi->methodPointer) snprintf(ab, sizeof(ab), " // %llX", (unsigned long long)(uintptr_t)mi->methodPointer);
+                    out << indent << "    public " << (is_static ? "static " : "") << ret << " " << mi->name << "(";
                     int pcount = (int)mi->parameters_count;
                     for (int i = 0; i < pcount; i++) {
                         if (i > 0) out << ", ";
                         out << get_param_type_name(mi, i) << " " << get_param_name(mi, i);
                     }
-                    out << ") {}\n";
+                    out << ") {}" << ab << "\n";
                 }
                 out << indent << "}\n";
                 if (r->namespaze && is_valid_pointer(r->namespaze) && strlen(r->namespaze) > 0) out << "}\n";
@@ -2664,13 +2663,29 @@ static void start_server() {
         try {
             std::string code = json_val(req.body, "code");
             if (code.empty()) { res.set_content("{\"output\":\"Error: empty code\"}", "application/json"); return; }
-            std::string out = executeLuaBNM(code);
+            std::string out = execute_lua_bnm(code);
             std::ostringstream j;
             j << "{\"output\":\"" << js_esc(out) << "\"}";
             res.set_content(j.str(), "application/json");
         } catch (...) {
             res.set_content("{\"output\":\"Error: native crash in executor\"}", "application/json");
         }
+    });
+
+    svr.Post("/api/lua/stop",[](const httplib::Request&, httplib::Response& res) {
+        stop_lua_bnm();
+        res.set_content("{\"ok\":true}", "application/json");
+    });
+
+    svr.Post("/api/lua/reset",[](const httplib::Request&, httplib::Response& res) {
+        reset_lua_bnm();
+        res.set_content("{\"ok\":true}", "application/json");
+    });
+
+    svr.Get("/api/lua/poll",[](const httplib::Request&, httplib::Response& res) {
+        std::ostringstream j;
+        j << "{\"output\":\"" << js_esc(poll_lua_bnm_output()) << "\"}";
+        res.set_content(j.str(), "application/json");
     });
 
     svr.listen("0.0.0.0", g_port);

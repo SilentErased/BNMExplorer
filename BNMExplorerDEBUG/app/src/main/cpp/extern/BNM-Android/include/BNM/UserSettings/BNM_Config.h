@@ -43,12 +43,12 @@
 //#define UNITY_VER 212 // Unity 2021.2.x
 //#define UNITY_VER 213 // Unity 2021.3.x (LTS)
 //#define UNITY_VER 221 // Unity 2022.1.x
-//#define UNITY_VER 222 // Unity 2022.2.x - 2022.3.x (LTS)
+#define UNITY_VER 222 // Unity 2022.2.x - 2022.3.x (LTS)
 //#define UNITY_VER 231 // Unity 2023.1.x
 //#define UNITY_VER 232 // Unity 2023.2.x - 2023.3.x
 //#define UNITY_VER 600 // Unity 6000.0.x - 6000.4.x
 //#define UNITY_VER 605 // Unity 6000.5.x
-#define UNITY_VER 606 // Unity 6000.6.x+
+//#define UNITY_VER 606 // Unity 6000.6.x+
 
 #define UNITY_PATCH_VER 7 // Specific patch version (if required)
 

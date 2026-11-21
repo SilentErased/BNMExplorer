@@ -265,6 +265,8 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
         <span style="font-weight:700;">LuaBNM Console</span>
         <span style="opacity:.6;font-size:11px;flex:1;">Lua 5.1 + BNM bindings</span>
         <button class="btn btn-grn" onclick="run_lua()"><span class="g-icon">play_arrow</span> Run</button>
+        <button class="btn btn-red" onclick="stop_lua()"><span class="g-icon">stop</span> Stop</button>
+        <button class="btn btn-red" onclick="reset_lua()"><span class="g-icon">restart_alt</span> Reset</button>
         <button class="btn btn-red" onclick="clear_console()"><span class="g-icon">delete</span> Clear</button>
       </div>
       <div style="display:flex;flex:1;overflow:hidden;">
@@ -284,30 +286,58 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
         <h2 style="color:var(--kw);margin-bottom:8px;">LuaBNM Documentation</h2>
         <div style="color:var(--fg-dim);margin-bottom:16px;">Embedded Lua scripting runtime for IL2CPP/Unity games via BNM.</div>
 
-        <h3 style="color:var(--type);margin:16px 0 8px;">Assembly &amp; Class Access</h3>
-        <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local asm = Assembly("Assembly-CSharp.dll")
-local ns = asm:NameSpace("MyGame")
-local cls = ns:Class("PlayerController", 0x0)
-print(cls.get_Health())
-cls.set_Health(100)
+                <h3 style="color:var(--type);margin:16px 0 8px;">Classes and Methods</h3>
+        <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local cls = find_class("UnityEngine.GameObject")
+print(cls:is_valid())
+local method = cls:get_method("Find", 1)
+print(method:is_valid(), method("Main Camera"))
+local asm = assembly("Assembly-CSharp.dll")
+local player = asm:namespace("MyGame"):class("Player")
+print(player.some_static_field)</pre>
 
-local player = ns:Class("PlayerController", 0x7A3F00)
-print(player.Health)
-player.Speed = 10.5</pre>
+        <h3 style="color:var(--type);margin:16px 0 8px;">GameObject and Primitives</h3>
+        <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local cam = game_object.Find("Main Camera")
+local cube = game_object.CreatePrimitive(primitive_type.cube)
+cube.transform.position = vec3(0, 2, 0)
+cube.transform.localScale = vec3(0.3, 0.05, 0.4)
+cube:destroy(2.0)
+print(is_valid(cube))</pre>
 
-        <h3 style="color:var(--type);margin:16px 0 8px;">Scene Access</h3>
-        <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local objs = scene.GetObjects()
-for i,v in ipairs(objs) do
-    print(v.Name)
-end
+        <h3 style="color:var(--type);margin:16px 0 8px;">Components and Physics</h3>
+        <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local player = game_object.Find("Player")
+local body = player:get_component("UnityEngine.Rigidbody")
+body.velocity = vec3(0, 5, 0)
+body:AddForce(vec3(0, 1, 0), force_mode.velocity_change)</pre>
 
-local go = scene.FindObject("Player")
-print(go.Name, go.active)</pre>
+        <h3 style="color:var(--type);margin:16px 0 8px;">Vectors and Colors</h3>
+        <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local a = vec3(1, 2, 3)
+local b = a * 2 + vec3(0, 1, 0)
+print(b, b:length(), b:normalized(), a:dot(b))
+local c = color(1, 0, 0, 1)
+local q = quat(0, 0, 0, 1)</pre>
 
-        <h3 style="color:var(--type);margin:16px 0 8px;">GetComponent</h3>
-        <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local go = scene.FindObject("Player")
-local rb = go:GetComponent("Rigidbody")
-print(rb.velocity)</pre>
+        <h3 style="color:var(--type);margin:16px 0 8px;">XR Input</h3>
+        <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local grip = xr.get_bool_feature("grip_button", "right")
+local trigger = xr.get_float_feature("trigger", "left")
+local stick = xr.get_vector2_feature("primary_2d_axis", "right")
+xr.send_haptic_impulse("right", 0.5, 0.1)</pre>
+
+        <h3 style="color:var(--type);margin:16px 0 8px;">Scheduling</h3>
+        <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">set_tick_hook("MyGame.Player", "LateUpdate")
+local id = every(0.016, function()
+  if xr.get_bool_feature("grip_button", "right") then
+    print("grip")
+  end
+end)
+cancel(id)
+cancel_all()</pre>
+
+        <h3 style="color:var(--type);margin:16px 0 8px;">Scene</h3>
+        <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local objs = scene.get_objects()
+local found = scene.find_object("Player")
+local list = scene.find_objects_of_type("UnityEngine.Rigidbody")
+local same = wrap(found.addr)</pre>
+
       </div>
     </div>
   </div>
@@ -440,8 +470,7 @@ function format_code(d){
   lines.push(decl+' {');
   for(let f of d.fields||[]){
     let is_static=f.s?' <span class="c-kw">static</span>':'';
-    lines.push(`${ind}    <span class="c-cm">// offset 0x${f.off?Number(f.off).toString(16):'?'}</span>`);
-    lines.push(`${ind}    <span class="c-kw">public</span>${is_static} <span class="c-ty">${esc(f.type)}</span> <span>${esc(f.name)}</span>;`);
+    lines.push(`${ind}    <span class="c-kw">public</span>${is_static} <span class="c-ty">${esc(f.type)}</span> <span>${esc(f.name)}</span>; <span class="c-cm">// 0x${f.off?Number(f.off).toString(16):'?'}</span>`);
   }
   for(let p of d.props||[]){
     let acc=(p.g?'get; ':'')+(p.s?'set; ':'');
@@ -450,8 +479,8 @@ function format_code(d){
   for(let m of d.methods||[]){
     let prms=(m.params||[]).map(p=>`<span class="c-ty">${esc(p.t)}</span> ${esc(p.n)}`).join(', ');
     let is_static=m.s?' <span class="c-kw">static</span>':'';
-    let addr=m.addr?`<span class="c-cm">// ${m.addr}</span>\n${ind}    `:'';
-    lines.push(`${ind}    ${addr}<span class="c-kw">public</span>${is_static} <span class="c-ty">${esc(m.ret)}</span> <span class="c-mt">${esc(m.name)}</span>(${prms}) {}`);
+    let addr=m.addr?` <span class="c-cm">// ${m.addr}</span>`:'';
+    lines.push(`${ind}    <span class="c-kw">public</span>${is_static} <span class="c-ty">${esc(m.ret)}</span> <span class="c-mt">${esc(m.name)}</span>(${prms}) {}${addr}`);
   }
   lines.push(ind+'}');
   if(ns) lines.push('}');
@@ -1179,6 +1208,31 @@ async function run_lua(){
 }
 
 function clear_console(){document.getElementById('lua-output').textContent='';}
+
+async function stop_lua(){
+  let out=document.getElementById('lua-output');
+  try{await fetch('/api/lua/stop',{method:'POST'});out.textContent+='> Tasks stopped\n';}catch(e){out.textContent+='Error: '+e.message+'\n';}
+  out.scrollTop=out.scrollHeight;
+}
+
+async function reset_lua(){
+  let out=document.getElementById('lua-output');
+  try{await fetch('/api/lua/reset',{method:'POST'});out.textContent+='> Lua state reset\n';}catch(e){out.textContent+='Error: '+e.message+'\n';}
+  out.scrollTop=out.scrollHeight;
+}
+
+async function poll_lua(){
+  try{
+    let d=await fetch('/api/lua/poll').then(r=>r.json());
+    if(d.output){
+      let out=document.getElementById('lua-output');
+      out.textContent+=d.output+'\n';
+      out.scrollTop=out.scrollHeight;
+    }
+  }catch(e){}
+}
+
+setInterval(poll_lua,1000);
 
 document.addEventListener('keydown',function(e){
   if(e.ctrlKey&&e.key==='Enter'){
