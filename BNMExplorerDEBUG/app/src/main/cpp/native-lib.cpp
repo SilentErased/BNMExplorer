@@ -21,6 +21,7 @@
 #include "Include/httplib.h"
 #include "explorer/html_page.hpp"
 #include "explorer/luabnm.hpp"
+#include "explorer/workspace_api.hpp"
 
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "BNMExplorer", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "BNMExplorer", __VA_ARGS__)
@@ -2687,6 +2688,8 @@ static void start_server() {
         j << "{\"output\":\"" << js_esc(poll_lua_bnm_output()) << "\"}";
         res.set_content(j.str(), "application/json");
     });
+
+    register_workspace_routes(svr);
 
     svr.listen("0.0.0.0", g_port);
 }

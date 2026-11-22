@@ -41,9 +41,9 @@
 //#define UNITY_VER 203 // Unity 2020.3.20 - 2020.3.xx
 //#define UNITY_VER 211 // Unity 2021.1.x (Set UNITY_PATCH_VER = 24 if patch >= 24)
 //#define UNITY_VER 212 // Unity 2021.2.x
-//#define UNITY_VER 213 // Unity 2021.3.x (LTS)
+#define UNITY_VER 213 // Unity 2021.3.x (LTS)
 //#define UNITY_VER 221 // Unity 2022.1.x
-#define UNITY_VER 222 // Unity 2022.2.x - 2022.3.x (LTS)
+//#define UNITY_VER 222 // Unity 2022.2.x - 2022.3.x (LTS)
 //#define UNITY_VER 231 // Unity 2023.1.x
 //#define UNITY_VER 232 // Unity 2023.2.x - 2023.3.x
 //#define UNITY_VER 600 // Unity 6000.0.x - 6000.4.x

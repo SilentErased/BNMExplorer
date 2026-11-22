@@ -88,6 +88,7 @@ target_link_libraries(
         PUBLIC
         android
         log
+        z
         BNM
         dobby
         ${CMAKE_CURRENT_SOURCE_DIR}/extern/OpenSSL/${ANDROID_ABI}/lib/libcrypto.a

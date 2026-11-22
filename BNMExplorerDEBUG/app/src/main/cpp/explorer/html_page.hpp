@@ -149,6 +149,51 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
   .lbl{width:100%;border-right:none;border-bottom:1px solid var(--brd-light);padding:4px 8px;}
   .val{width:100%;padding:4px 8px;}
 }
+
+.ws-bar{background:var(--bg3);padding:6px 10px;border-bottom:1px solid var(--brd);display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.ws-title{font-weight:700;margin-right:2px;}
+.ws-body{display:flex;flex:1;min-height:0;overflow:hidden;position:relative;}
+.ws-side{width:250px;flex-shrink:0;border-right:1px solid var(--brd);display:flex;flex-direction:column;background:var(--bg2);min-height:0;}
+.ws-stabs{display:flex;border-bottom:1px solid var(--brd);}
+.ws-stab{flex:1;text-align:center;padding:8px 4px;cursor:pointer;color:var(--fg-dim);font-weight:600;font-size:11px;border-bottom:2px solid transparent;user-select:none;}
+.ws-stab:hover{color:#fff;}
+.ws-stab.active{color:#fff;border-bottom-color:var(--sel2);background:var(--bg3);}
+.ws-pane{flex:1;display:flex;flex-direction:column;min-height:0;}
+.ws-actions{display:flex;gap:4px;padding:6px;border-bottom:1px solid var(--brd);align-items:center;}
+.ws-actions .grow{flex:1;font-size:10px;color:var(--fg-dim);font-weight:600;letter-spacing:.4px;text-transform:uppercase;padding-left:4px;}
+.ws-tree{flex:1;overflow-y:auto;padding:4px;}
+.ws-row{display:flex;align-items:center;gap:5px;padding:5px 6px;border-radius:var(--rad-sm);cursor:pointer;white-space:nowrap;user-select:none;}
+.ws-row:hover{background:var(--bg3);}
+.ws-row.active{background:var(--sel);color:#fff;font-weight:600;}
+.ws-row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;}
+.ws-row .acts{display:none;gap:1px;}
+.ws-row:hover .acts,.ws-row.active .acts{display:flex;}
+.ws-ibtn{background:transparent;border:none;color:var(--fg-dim);cursor:pointer;padding:3px;border-radius:var(--rad-sm);display:inline-flex;align-items:center;justify-content:center;}
+.ws-ibtn:hover{background:var(--bg4);color:#fff;}
+.ws-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;}
+.ws-tabs{display:flex;align-items:stretch;background:var(--bg2);border-bottom:1px solid var(--brd);min-height:32px;overflow-x:auto;}
+.ws-tab{display:flex;align-items:center;gap:6px;padding:0 10px;border-right:1px solid var(--brd);cursor:pointer;color:var(--fg-dim);white-space:nowrap;font-size:11px;font-weight:600;border-top:2px solid transparent;}
+.ws-tab:hover{background:var(--bg3);color:#fff;}
+.ws-tab.active{background:var(--bg);color:#fff;border-top-color:var(--sel2);}
+.ws-tab .dirty{width:7px;height:7px;border-radius:50%;background:#d4d4d4;flex-shrink:0;}
+.ws-edit{flex:1;display:flex;min-height:0;position:relative;background:var(--bg);}
+.ws-gutter{margin:0;padding:10px 8px 10px 10px;min-width:44px;text-align:right;color:#5c5c5c;background:var(--bg);border-right:1px solid var(--brd);font-family:'JetBrains Mono',Consolas,'Courier New',monospace;font-size:12px;line-height:18px;overflow:hidden;user-select:none;}
+#lua-editor{flex:1;min-width:0;background:var(--bg);color:var(--fg);border:none;padding:10px;font-family:'JetBrains Mono',Consolas,'Courier New',monospace;font-size:12px;line-height:18px;resize:none;outline:none;tab-size:2;white-space:pre;overflow:auto;}
+.ws-empty{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:var(--fg-dim);background:var(--bg);font-weight:600;}
+.ws-out-hdr{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg3);border-top:1px solid var(--brd);border-bottom:1px solid var(--brd);font-size:10px;color:var(--fg-dim);font-weight:600;letter-spacing:.4px;text-transform:uppercase;}
+#lua-output{height:32%;min-height:90px;background:#0a0a0a;color:#34d399;padding:8px 10px;margin:0;overflow:auto;font-family:'JetBrains Mono',Consolas,'Courier New',monospace;font-size:11px;white-space:pre-wrap;}
+.ws-zip-row{padding:8px;border-bottom:1px solid var(--brd-light);display:flex;flex-direction:column;gap:6px;}
+.ws-zip-name{font-weight:600;word-break:break-all;}
+.ws-zip-meta{font-size:10px;color:var(--fg-dim);}
+.ws-zip-btns{display:flex;gap:4px;}
+.ws-hint{padding:8px;font-size:10px;color:var(--fg-dim);line-height:1.5;word-break:break-all;}
+.ws-dialog-msg{padding:12px 14px;line-height:1.55;color:var(--fg);}
+.ws-dialog-foot{display:flex;justify-content:flex-end;gap:6px;padding:10px 14px;border-top:1px solid var(--brd);}
+@media (max-width:860px){
+  .ws-side{position:absolute;top:0;bottom:0;left:0;width:80%;max-width:300px;z-index:30;transform:translateX(-102%);transition:transform .18s ease;}
+  .ws-side.show{transform:none;box-shadow:0 0 30px rgba(0,0,0,.7);}
+}
+@media (min-width:861px){.ws-toggle{display:none;}}
 </style>
 </head>
 <body>
@@ -261,22 +306,54 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
     </div>
 
     <div class="panel" id="pnl-lua" style="padding:0;flex-direction:column;">
-      <div style="background:var(--bg3);padding:8px 12px;border-bottom:1px solid var(--brd);display:flex;gap:8px;align-items:center;">
-        <span style="font-weight:700;">LuaBNM Console</span>
-        <span style="opacity:.6;font-size:11px;flex:1;">Lua 5.1 + BNM bindings</span>
-        <button class="btn btn-grn" onclick="run_lua()"><span class="g-icon">play_arrow</span> Run</button>
+      <div class="ws-bar">
+        <button class="btn ws-toggle" onclick="ws_toggle_sidebar()"><span class="g-icon">menu</span></button>
+        <span class="ws-title">LuaBNM Console</span>
+        <button class="btn btn-grn" onclick="ws_run()"><span class="g-icon">play_arrow</span> Run</button>
         <button class="btn btn-red" onclick="stop_lua()"><span class="g-icon">stop</span> Stop</button>
         <button class="btn btn-red" onclick="reset_lua()"><span class="g-icon">restart_alt</span> Reset</button>
-        <button class="btn btn-red" onclick="clear_console()"><span class="g-icon">delete</span> Clear</button>
+        <span style="flex:1;"></span>
+        <button class="btn" onclick="ws_import_click()"><span class="g-icon">upload_file</span> Import ZIP</button>
+        <button class="btn" onclick="ws_export()"><span class="g-icon">download</span> Export ZIP</button>
+        <button class="btn btn-blu" onclick="ws_save_device()"><span class="g-icon">save</span> Save On Device</button>
+        <input type="file" id="ws-file-input" accept=".zip,application/zip" style="display:none;" onchange="ws_import_selected(this)">
       </div>
-      <div style="display:flex;flex:1;overflow:hidden;">
-        <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid var(--brd);">
-          <div style="padding:4px 8px;background:var(--bg3);border-bottom:1px solid var(--brd);font-size:10px;color:var(--fg-dim);">Editor</div>
-          <textarea id="lua-editor" spellcheck="false" style="flex:1;background:var(--bg);color:var(--fg);border:none;padding:10px;font-family:'JetBrains Mono',Consolas,'Courier New',monospace;font-size:12px;resize:none;outline:none;tab-size:2;" placeholder="-- Write LuaBNM code here..."></textarea>
+      <div class="ws-body">
+        <div class="ws-side" id="ws-side">
+          <div class="ws-stabs">
+            <div class="ws-stab active" id="ws-stab-files" onclick="ws_side_tab('files')">Workspace</div>
+            <div class="ws-stab" id="ws-stab-zips" onclick="ws_side_tab('zips')">Device ZIPs</div>
+          </div>
+          <div class="ws-pane" id="ws-files-pane">
+            <div class="ws-actions">
+              <span class="grow">Files</span>
+              <button class="ws-ibtn" title="New file" onclick="ws_new_file()"><span class="g-icon">note_add</span></button>
+              <button class="ws-ibtn" title="New folder" onclick="ws_new_folder()"><span class="g-icon">create_new_folder</span></button>
+              <button class="ws-ibtn" title="Refresh" onclick="ws_refresh()"><span class="g-icon">refresh</span></button>
+            </div>
+            <div class="ws-tree" id="ws-tree"></div>
+          </div>
+          <div class="ws-pane" id="ws-zips-pane" style="display:none;">
+            <div class="ws-actions">
+              <span class="grow">Saved on device</span>
+              <button class="ws-ibtn" title="Refresh" onclick="ws_refresh_zips()"><span class="g-icon">refresh</span></button>
+            </div>
+            <div class="ws-tree" id="ws-zip-list"></div>
+            <div class="ws-hint" id="ws-zip-path"></div>
+          </div>
         </div>
-        <div style="flex:1;display:flex;flex-direction:column;">
-          <div style="padding:4px 8px;background:var(--bg3);border-bottom:1px solid var(--brd);font-size:10px;color:var(--fg-dim);">Output</div>
-          <pre id="lua-output" style="flex:1;background:#0a0a0a;color:#34d399;padding:10px;margin:0;overflow:auto;font-family:'JetBrains Mono',Consolas,'Courier New',monospace;font-size:11px;white-space:pre-wrap;"></pre>
+        <div class="ws-main">
+          <div class="ws-tabs" id="ws-tabs"></div>
+          <div class="ws-edit">
+            <pre class="ws-gutter" id="ws-gutter">1</pre>
+            <textarea id="lua-editor" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea>
+            <div class="ws-empty" id="ws-empty">Open a file from the workspace</div>
+          </div>
+          <div class="ws-out-hdr">
+            <span style="flex:1;">Output</span>
+            <button class="ws-ibtn" title="Clear output" onclick="clear_console()"><span class="g-icon">delete</span></button>
+          </div>
+          <pre id="lua-output"></pre>
         </div>
       </div>
     </div>
@@ -286,7 +363,23 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
         <h2 style="color:var(--kw);margin-bottom:8px;">LuaBNM Documentation</h2>
         <div style="color:var(--fg-dim);margin-bottom:16px;">Embedded Lua scripting runtime for IL2CPP/Unity games via BNM.</div>
 
-                <h3 style="color:var(--type);margin:16px 0 8px;">Classes and Methods</h3>
+                        <h3 style="color:var(--type);margin:16px 0 8px;">Workspace and require</h3>
+        <div style="color:var(--fg-dim);margin-bottom:8px;line-height:1.6;">The Console keeps your scripts as .lua files in a workspace stored on the device. Run executes main.lua. Each run first stops tasks started by the previous run and clears the module cache, so edits always apply. Zip files are saved to the zips folder shown in the Device ZIPs tab.</div>
+        <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">-- main.lua
+local movements = require("movements.lua")
+local utils = require("lib.utils")
+movements.hello()
+
+-- lib/utils.lua
+local utils = {}
+function utils.double(v) return v * 2 end
+return utils
+
+-- require accepts: "movements.lua", "movements", "lib/utils", "lib.utils",
+-- and a folder with init.lua. Modules are loaded once per run.
+-- Import ZIP replaces the workspace with the .lua files from the archive.</pre>
+
+        <h3 style="color:var(--type);margin:16px 0 8px;">Classes and Methods</h3>
         <pre style="background:var(--bg);padding:10px;border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local cls = find_class("UnityEngine.GameObject")
 print(cls:is_valid())
 local method = cls:get_method("Find", 1)
@@ -339,6 +432,18 @@ local list = scene.find_objects_of_type("UnityEngine.Rigidbody")
 local same = wrap(found.addr)</pre>
 
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="wsModal">
+  <div class="modal-box" style="width:440px;" onclick="event.stopPropagation()">
+    <div class="modal-hdr"><span id="wsModalTitle"></span></div>
+    <div class="ws-dialog-msg" id="wsModalMsg"></div>
+    <div style="padding:0 14px 10px 14px;"><input class="inp" id="wsModalInput" style="display:none;" autocomplete="off" spellcheck="false"></div>
+    <div class="ws-dialog-foot">
+      <button class="btn" id="wsModalCancel">Cancel</button>
+      <button class="btn btn-grn" id="wsModalOk">OK</button>
     </div>
   </div>
 </div>
@@ -603,6 +708,7 @@ function switch_tab(id){
   document.getElementById(`pnl-${id}`).classList.add('active');
   if(id==='loops')refresh_loops_ui();
   if(id==='catcher')refresh_catcher();
+  if(id==='lua')ws_on_show();
 }
 
 async function do_search(e){
@@ -1195,18 +1301,6 @@ function download_dump(){
   a.href='/api/dump';a.download='dump.cs';a.click();
 }
 
-async function run_lua(){
-  let code=document.getElementById('lua-editor').value;
-  if(!code.trim())return;
-  let out=document.getElementById('lua-output');
-  out.textContent+='> Executing script...\n';
-  try{
-    let d=await fetch('/api/lua/exec',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}).then(r=>r.json());
-    out.textContent+=d.output+'\n';
-  }catch(e){out.textContent+='Error: '+e.message+'\n';}
-  out.scrollTop=out.scrollHeight;
-}
-
 function clear_console(){document.getElementById('lua-output').textContent='';}
 
 async function stop_lua(){
@@ -1234,12 +1328,430 @@ async function poll_lua(){
 
 setInterval(poll_lua,1000);
 
-document.addEventListener('keydown',function(e){
-  if(e.ctrlKey&&e.key==='Enter'){
-    let el=document.getElementById('lua-editor');
-    if(document.activeElement===el)run_lua();
+
+const ws={entries:[],open:[],active:null,buf:{},expanded:{},sel_dir:'',side:'files',info:null,ready:false,zip_name:'workspace'};
+
+function ws_esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function ws_log(t){let o=document.getElementById('lua-output');o.textContent+=t+'\n';o.scrollTop=o.scrollHeight;}
+
+async function ws_api(url,opts){
+  let r=await fetch(url,opts);
+  let d=null;
+  try{d=await r.json();}catch(e){}
+  if(!r.ok||(d&&d.error))throw new Error((d&&d.error)||('HTTP '+r.status));
+  return d;
+}
+function ws_post(url,obj){return ws_api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)});}
+
+function ws_dialog(o){
+  return new Promise(resolve=>{
+    const m=document.getElementById('wsModal');
+    const inp=document.getElementById('wsModalInput');
+    const ok=document.getElementById('wsModalOk');
+    const cancel=document.getElementById('wsModalCancel');
+    document.getElementById('wsModalTitle').textContent=o.title||'';
+    document.getElementById('wsModalMsg').textContent=o.message||'';
+    inp.style.display=o.input!==undefined?'block':'none';
+    inp.value=o.input||'';
+    ok.textContent=o.ok||'OK';
+    ok.className='btn '+(o.danger?'btn-red':'btn-grn');
+    cancel.style.display=o.alert?'none':'';
+    function done(v){m.classList.remove('open');ok.onclick=null;cancel.onclick=null;inp.onkeydown=null;m.onclick=null;resolve(v);}
+    ok.onclick=()=>done({ok:true,value:inp.value});
+    cancel.onclick=()=>done({ok:false});
+    m.onclick=e=>{if(e.target===m)done({ok:false});};
+    inp.onkeydown=e=>{if(e.key==='Enter')done({ok:true,value:inp.value});if(e.key==='Escape')done({ok:false});};
+    m.classList.add('open');
+    if(o.input!==undefined)setTimeout(()=>{inp.focus();inp.select();},40);
+  });
+}
+
+function ws_toggle_sidebar(){document.getElementById('ws-side').classList.toggle('show');}
+
+function ws_side_tab(t){
+  ws.side=t;
+  document.getElementById('ws-stab-files').classList.toggle('active',t==='files');
+  document.getElementById('ws-stab-zips').classList.toggle('active',t==='zips');
+  document.getElementById('ws-files-pane').style.display=t==='files'?'flex':'none';
+  document.getElementById('ws-zips-pane').style.display=t==='zips'?'flex':'none';
+  if(t==='zips')ws_refresh_zips();
+}
+
+async function ws_on_show(){
+  if(ws.ready)return;
+  try{
+    ws.info=await ws_api('/api/ws/info');
+    await ws_refresh();
+    ws.ready=true;
+    if(ws.entries.some(e=>!e.dir&&e.path==='main.lua'))await ws_open_file('main.lua');
+    else ws_render_editor();
+  }catch(e){ws_log('Workspace error: '+e.message);}
+}
+
+async function ws_refresh(){
+  let d=await ws_api('/api/ws/tree');
+  ws.entries=d.entries||[];
+  ws_render_tree();
+}
+
+function ws_build_tree(){
+  const root={dirs:{},files:[],path:''};
+  for(const e of ws.entries){
+    const parts=e.path.split('/');
+    const depth=e.dir?parts.length:parts.length-1;
+    let node=root;
+    for(let i=0;i<depth;i++){
+      const p=parts[i];
+      if(!node.dirs[p])node.dirs[p]={dirs:{},files:[],path:parts.slice(0,i+1).join('/')};
+      node=node.dirs[p];
+    }
+    if(!e.dir)node.files.push({name:parts[parts.length-1],path:e.path});
   }
-});
+  return root;
+}
+
+function ws_render_tree(){
+  const el=document.getElementById('ws-tree');
+  const root=ws_build_tree();
+  let html='';
+  function walk(node,depth){
+    for(const dn of Object.keys(node.dirs).sort()){
+      const d=node.dirs[dn];
+      const open=ws.expanded[d.path]!==false;
+      html+=`<div class="ws-row${ws.sel_dir===d.path?' active':''}" style="padding-left:${6+depth*14}px" data-path="${ws_esc(d.path)}" data-dir="1" onclick="ws_row_click(this)">`+
+        `<span class="g-icon" style="font-size:15px;color:var(--fg-dim);">${open?'folder_open':'folder'}</span><span class="nm">${ws_esc(dn)}</span>`+
+        `<span class="acts"><button class="ws-ibtn" title="Rename" onclick="event.stopPropagation();ws_rename(this.closest('.ws-row').dataset.path)"><span class="g-icon" style="font-size:14px;">edit</span></button>`+
+        `<button class="ws-ibtn" title="Delete" onclick="event.stopPropagation();ws_delete(this.closest('.ws-row').dataset.path,true)"><span class="g-icon" style="font-size:14px;">delete</span></button></span></div>`;
+      if(open)walk(d,depth+1);
+    }
+    for(const f of node.files.sort((a,b)=>a.name.localeCompare(b.name))){
+      html+=`<div class="ws-row${ws.active===f.path?' active':''}" style="padding-left:${6+depth*14}px" data-path="${ws_esc(f.path)}" onclick="ws_row_click(this)">`+
+        `<span class="g-icon" style="font-size:15px;color:var(--fg-dim);">description</span><span class="nm">${ws_esc(f.name)}</span>`+
+        `<span class="acts"><button class="ws-ibtn" title="Rename" onclick="event.stopPropagation();ws_rename(this.closest('.ws-row').dataset.path)"><span class="g-icon" style="font-size:14px;">edit</span></button>`+
+        `<button class="ws-ibtn" title="Delete" onclick="event.stopPropagation();ws_delete(this.closest('.ws-row').dataset.path,false)"><span class="g-icon" style="font-size:14px;">delete</span></button></span></div>`;
+    }
+  }
+  walk(root,0);
+  el.innerHTML=html||'<div class="ws-hint">Workspace is empty. Create a file with the button above.</div>';
+}
+
+function ws_row_click(row){
+  const path=row.dataset.path;
+  if(row.dataset.dir){
+    ws.expanded[path]=ws.expanded[path]===false;
+    ws.sel_dir=path;
+    ws_render_tree();
+    return;
+  }
+  const i=path.lastIndexOf('/');
+  ws.sel_dir=i>=0?path.substring(0,i):'';
+  ws_open_file(path);
+  if(window.innerWidth<=860)document.getElementById('ws-side').classList.remove('show');
+}
+
+async function ws_open_file(path){
+  if(!ws.buf[path]){
+    try{
+      let d=await ws_api('/api/ws/file?path='+encodeURIComponent(path));
+      ws.buf[path]={text:d.content,dirty:false};
+    }catch(e){ws_log('Open failed: '+e.message);return;}
+  }
+  if(!ws.open.includes(path))ws.open.push(path);
+  ws.active=path;
+  ws_render_editor();
+  ws_render_tree();
+}
+
+function ws_render_tabs(){
+  const el=document.getElementById('ws-tabs');
+  let html='';
+  for(const p of ws.open){
+    const name=p.split('/').pop();
+    const dirty=ws.buf[p]&&ws.buf[p].dirty;
+    html+=`<div class="ws-tab${p===ws.active?' active':''}" data-path="${ws_esc(p)}" title="${ws_esc(p)}" onclick="ws_open_file(this.dataset.path)">`+
+      `<span>${ws_esc(name)}</span>${dirty?'<span class="dirty"></span>':''}`+
+      `<button class="ws-ibtn" title="Close" onclick="event.stopPropagation();ws_close_file(this.closest('.ws-tab').dataset.path)"><span class="g-icon" style="font-size:13px;">close</span></button></div>`;
+  }
+  if(ws.active)html+=`<div class="ws-tab" style="margin-left:auto;border-right:none;" title="Run this file" onclick="ws_run(ws.active)"><span class="g-icon" style="font-size:15px;color:#34d399;">play_arrow</span></div>`;
+  el.innerHTML=html;
+}
+
+function ws_update_gutter(){
+  const ed=document.getElementById('lua-editor');
+  const n=ed.value.split('\n').length;
+  let t='';
+  for(let i=1;i<=n;i++)t+=i+(i<n?'\n':'');
+  const g=document.getElementById('ws-gutter');
+  g.textContent=t;
+  g.scrollTop=ed.scrollTop;
+}
+
+function ws_render_editor(){
+  const ed=document.getElementById('lua-editor');
+  const empty=document.getElementById('ws-empty');
+  ws_render_tabs();
+  if(ws.active&&ws.buf[ws.active]){
+    ed.disabled=false;
+    ed.value=ws.buf[ws.active].text;
+    empty.style.display='none';
+  }else{
+    ed.value='';
+    ed.disabled=true;
+    empty.style.display='flex';
+  }
+  ws_update_gutter();
+}
+
+async function ws_close_file(path){
+  const b=ws.buf[path];
+  if(b&&b.dirty){
+    const r=await ws_dialog({title:'Unsaved changes',message:path+' has unsaved changes. Close it and discard them?',ok:'Discard',danger:true});
+    if(!r.ok)return;
+  }
+  ws.open=ws.open.filter(p=>p!==path);
+  delete ws.buf[path];
+  if(ws.active===path)ws.active=ws.open.length?ws.open[ws.open.length-1]:null;
+  ws_render_editor();
+  ws_render_tree();
+}
+
+async function ws_save_file(path){
+  const b=ws.buf[path];
+  if(!b||!b.dirty)return true;
+  try{
+    await ws_post('/api/ws/file',{path:path,content:b.text});
+    b.dirty=false;
+    ws_render_tabs();
+    return true;
+  }catch(e){ws_log('Save failed ('+path+'): '+e.message);return false;}
+}
+
+async function ws_save_all(){
+  let ok=true;
+  for(const p of Object.keys(ws.buf))if(!(await ws_save_file(p)))ok=false;
+  return ok;
+}
+
+function ws_child_path(name){
+  name=name.trim().replace(/\\/g,'/').replace(/^\/+/,'');
+  return ws.sel_dir?ws.sel_dir+'/'+name:name;
+}
+
+async function ws_new_file(){
+  const r=await ws_dialog({title:'New file',message:ws.sel_dir?'Folder: '+ws.sel_dir:'Folder: workspace root',input:'new_file.lua',ok:'Create'});
+  if(!r.ok||!r.value.trim())return;
+  let name=r.value.trim();
+  if(!/\.lua$/i.test(name))name+='.lua';
+  const path=ws_child_path(name);
+  if(ws.entries.some(e=>e.path===path)){ws_log('File already exists: '+path);return;}
+  try{
+    let d=await ws_post('/api/ws/file',{path:path,content:''});
+    await ws_refresh();
+    await ws_open_file(d.path);
+  }catch(e){ws_log('Create failed: '+e.message);}
+}
+
+async function ws_new_folder(){
+  const r=await ws_dialog({title:'New folder',message:ws.sel_dir?'Folder: '+ws.sel_dir:'Folder: workspace root',input:'folder',ok:'Create'});
+  if(!r.ok||!r.value.trim())return;
+  try{
+    let d=await ws_post('/api/ws/mkdir',{path:ws_child_path(r.value)});
+    ws.expanded[d.path]=true;
+    await ws_refresh();
+  }catch(e){ws_log('Create failed: '+e.message);}
+}
+
+function ws_remap(from,to){
+  const map=p=>p===from?to:(p.startsWith(from+'/')?to+p.substring(from.length):p);
+  const nb={};
+  for(const p of Object.keys(ws.buf))nb[map(p)]=ws.buf[p];
+  ws.buf=nb;
+  ws.open=ws.open.map(map);
+  if(ws.active)ws.active=map(ws.active);
+  if(ws.sel_dir)ws.sel_dir=map(ws.sel_dir);
+}
+
+async function ws_rename(path){
+  const r=await ws_dialog({title:'Rename',message:path,input:path,ok:'Rename'});
+  if(!r.ok||!r.value.trim()||r.value.trim()===path)return;
+  let target=r.value.trim();
+  const isFile=ws.entries.some(e=>e.path===path&&!e.dir);
+  if(isFile&&!/\.lua$/i.test(target))target+='.lua';
+  try{
+    let d=await ws_post('/api/ws/rename',{from:path,to:target});
+    ws_remap(path,d.path);
+    await ws_refresh();
+    ws_render_editor();
+  }catch(e){ws_log('Rename failed: '+e.message);}
+}
+
+async function ws_delete(path,is_dir){
+  const r=await ws_dialog({title:'Delete',message:(is_dir?'Delete folder ':'Delete file ')+path+(is_dir?' and everything inside it?':'?'),ok:'Delete',danger:true});
+  if(!r.ok)return;
+  try{
+    await ws_post('/api/ws/delete',{path:path});
+    const gone=p=>p===path||p.startsWith(path+'/');
+    ws.open=ws.open.filter(p=>!gone(p));
+    for(const p of Object.keys(ws.buf))if(gone(p))delete ws.buf[p];
+    if(ws.active&&gone(ws.active))ws.active=ws.open.length?ws.open[ws.open.length-1]:null;
+    if(gone(ws.sel_dir))ws.sel_dir='';
+    await ws_refresh();
+    ws_render_editor();
+  }catch(e){ws_log('Delete failed: '+e.message);}
+}
+
+async function ws_run(path){
+  path=path||'main.lua';
+  if(!(await ws_save_all()))return;
+  ws_log('> Running '+path);
+  try{
+    let d=await ws_post('/api/ws/run',{path:path});
+    if(d.output)ws_log(d.output);
+  }catch(e){ws_log('Error: '+e.message);}
+}
+
+async function ws_reset_after_replace(){
+  ws.open=[];ws.buf={};ws.active=null;ws.sel_dir='';ws.expanded={};
+  await ws_refresh();
+  if(ws.entries.some(e=>!e.dir&&e.path==='main.lua'))await ws_open_file('main.lua');
+  else ws_render_editor();
+}
+
+const ws_replace_warning='This replaces everything in the current workspace. All existing .lua files will be deleted and cannot be restored. Save your work first (Save On Device or Export ZIP) before continuing.';
+
+async function ws_import_click(){
+  const r=await ws_dialog({title:'Import ZIP',message:ws_replace_warning,ok:'OK, import',danger:true});
+  if(!r.ok)return;
+  document.getElementById('ws-file-input').click();
+}
+
+async function ws_import_selected(inp){
+  const f=inp.files&&inp.files[0];
+  inp.value='';
+  if(!f)return;
+  try{
+    const buf=await f.arrayBuffer();
+    let d=await ws_api('/api/ws/import',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:buf});
+    ws_log('> Imported '+d.imported+' .lua file(s) from '+f.name+(d.skipped?' ('+d.skipped+' skipped)':''));
+    await ws_reset_after_replace();
+  }catch(e){ws_log('Import failed: '+e.message);}
+}
+
+async function ws_export(){
+  if(!(await ws_save_all()))return;
+  const a=document.createElement('a');
+  a.href='/api/ws/export';
+  a.download='workspace.zip';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function ws_save_device(){
+  if(!(await ws_save_all()))return;
+  const r=await ws_dialog({title:'Save On Device',message:'The workspace is saved as a ZIP in the app storage on this device. Name:',input:ws.zip_name,ok:'Save'});
+  if(!r.ok||!r.value.trim())return;
+  try{
+    let name=r.value.trim();
+    let list=await ws_api('/api/ws/zips');
+    const full=/\.zip$/i.test(name)?name:name+'.zip';
+    if((list.zips||[]).some(z=>z.name===full)){
+      const o=await ws_dialog({title:'Overwrite?',message:full+' already exists on this device. Replace it?',ok:'Replace',danger:true});
+      if(!o.ok)return;
+    }
+    let d=await ws_post('/api/ws/save_zip',{name:name});
+    ws.zip_name=d.name.replace(/\.zip$/i,'');
+    ws_log('> Saved on device: '+d.name);
+    await ws_refresh_zips();
+  }catch(e){ws_log('Save failed: '+e.message);}
+}
+
+function ws_format_size(n){
+  if(n<1024)return n+' B';
+  if(n<1048576)return (n/1024).toFixed(1)+' KB';
+  return (n/1048576).toFixed(1)+' MB';
+}
+
+async function ws_refresh_zips(){
+  const el=document.getElementById('ws-zip-list');
+  try{
+    if(!ws.info)ws.info=await ws_api('/api/ws/info');
+    let d=await ws_api('/api/ws/zips');
+    let html='';
+    for(const z of d.zips||[]){
+      const when=new Date(z.mtime*1000).toLocaleString();
+      html+=`<div class="ws-zip-row" data-name="${ws_esc(z.name)}"><div class="ws-zip-name">${ws_esc(z.name)}</div>`+
+        `<div class="ws-zip-meta">${ws_format_size(z.size)} - ${ws_esc(when)}</div>`+
+        `<div class="ws-zip-btns">`+
+        `<button class="btn btn-grn" onclick="ws_load_device_zip(this.closest('.ws-zip-row').dataset.name)"><span class="g-icon">folder_open</span> Load</button>`+
+        `<button class="btn" onclick="ws_download_device_zip(this.closest('.ws-zip-row').dataset.name)"><span class="g-icon">download</span></button>`+
+        `<button class="btn btn-red" onclick="ws_delete_device_zip(this.closest('.ws-zip-row').dataset.name)"><span class="g-icon">delete</span></button>`+
+        `</div></div>`;
+    }
+    el.innerHTML=html||'<div class="ws-hint">No ZIP files saved on this device yet. Use Save On Device to create one.</div>';
+    document.getElementById('ws-zip-path').textContent='Folder: '+ws.info.zips+'  (ZIP files you copy here with a file manager or adb appear in this list)';
+  }catch(e){el.innerHTML='<div class="ws-hint">'+ws_esc(e.message)+'</div>';}
+}
+
+async function ws_load_device_zip(name){
+  const r=await ws_dialog({title:'Load '+name,message:ws_replace_warning,ok:'OK, load',danger:true});
+  if(!r.ok)return;
+  try{
+    let d=await ws_post('/api/ws/load_zip',{name:name});
+    ws_log('> Loaded '+d.imported+' .lua file(s) from '+name+(d.skipped?' ('+d.skipped+' skipped)':''));
+    await ws_reset_after_replace();
+    ws_side_tab('files');
+  }catch(e){ws_log('Load failed: '+e.message);}
+}
+
+function ws_download_device_zip(name){
+  const a=document.createElement('a');
+  a.href='/api/ws/zip?name='+encodeURIComponent(name);
+  a.download=name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function ws_delete_device_zip(name){
+  const r=await ws_dialog({title:'Delete ZIP',message:'Delete '+name+' from this device?',ok:'Delete',danger:true});
+  if(!r.ok)return;
+  try{
+    await ws_post('/api/ws/delete_zip',{name:name});
+    await ws_refresh_zips();
+  }catch(e){ws_log('Delete failed: '+e.message);}
+}
+
+(function(){
+  const ed=document.getElementById('lua-editor');
+  ed.addEventListener('input',()=>{
+    if(!ws.active||!ws.buf[ws.active])return;
+    const b=ws.buf[ws.active];
+    const was=b.dirty;
+    b.text=ed.value;
+    b.dirty=true;
+    if(!was)ws_render_tabs();
+    ws_update_gutter();
+  });
+  ed.addEventListener('scroll',()=>{document.getElementById('ws-gutter').scrollTop=ed.scrollTop;});
+  ed.addEventListener('keydown',e=>{
+    if(e.key==='Tab'){
+      e.preventDefault();
+      const s=ed.selectionStart,t=ed.selectionEnd;
+      ed.value=ed.value.substring(0,s)+'  '+ed.value.substring(t);
+      ed.selectionStart=ed.selectionEnd=s+2;
+      ed.dispatchEvent(new Event('input'));
+    }
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){
+      e.preventDefault();
+      if(ws.active)ws_save_file(ws.active);
+    }
+    if(e.ctrlKey&&e.key==='Enter'){
+      e.preventDefault();
+      ws_run();
+    }
+  });
+})();
 
 init();
 </script>

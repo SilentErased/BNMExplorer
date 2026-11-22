@@ -4,6 +4,7 @@
 #include "lua_scene.hpp"
 #include "lua_xr.hpp"
 #include "lua_runtime.hpp"
+#include "lua_modules.hpp"
 
 static const char* lua_prelude_source = R"lua(
 game_object = find_class("UnityEngine.GameObject")
@@ -136,6 +137,8 @@ static void luabnm_openlibs(lua_State* L) {
     lua_setfield(L, -2, "__index");
     lua_pop(L, 1);
 
+    module_cache_reset(L);
+    register_function(L, "require", l_require);
     register_function(L, "print", l_print);
     register_function(L, "vec2", l_vec2);
     register_function(L, "vec3", l_vec3);
@@ -194,12 +197,16 @@ static lua_State* rt_ensure_state() {
     return L;
 }
 
-static std::string execute_lua_bnm(const std::string& code) {
+static std::string execute_lua_chunk(const std::string& code, const std::string& chunk_name, bool restart) {
     try {
         std::lock_guard<std::recursive_mutex> lk(g_rt.mtx);
         BNM::AttachIl2Cpp();
         lua_State* L = rt_ensure_state();
         if (!L) return "Error: failed to create Lua state";
+        if (restart) {
+            for (auto& t : g_rt.tasks) t.dead = true;
+            module_cache_reset(L);
+        }
         {
             std::lock_guard<std::mutex> out_lk(g_rt.out_mtx);
             g_rt.exec_output.clear();
@@ -208,7 +215,7 @@ static std::string execute_lua_bnm(const std::string& code) {
         int base = lua_gettop(L);
         std::string error_text;
         g_rt.deadline = rt_now() + exec_timeout_seconds;
-        int err = luaL_loadbuffer(L, code.c_str(), code.size(), "=lua");
+        int err = luaL_loadbuffer(L, code.c_str(), code.size(), chunk_name.c_str());
         if (err) {
             const char* msg = lua_tostring(L, -1);
             error_text = std::string("SyntaxError: ") + (msg ? msg : "unknown");
@@ -237,6 +244,18 @@ static std::string execute_lua_bnm(const std::string& code) {
     } catch (...) {
         return "C++ Exception: unknown";
     }
+}
+
+static std::string execute_lua_bnm(const std::string& code) {
+    return execute_lua_chunk(code, "=lua", false);
+}
+
+static std::string execute_lua_workspace(const std::string& rel_path) {
+    std::string clean = ws_sanitize_path(rel_path.empty() ? "main.lua" : rel_path, true);
+    if (clean.empty()) return "Error: invalid file path";
+    std::string source;
+    if (!ws_read_file(clean, source)) return "Error: file not found: " + clean;
+    return execute_lua_chunk(source, "=" + clean, true);
 }
 
 static void stop_lua_bnm() {
