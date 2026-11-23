@@ -50,7 +50,7 @@
 //#define UNITY_VER 605 // Unity 6000.5.x
 //#define UNITY_VER 606 // Unity 6000.6.x+
 
-#define UNITY_PATCH_VER 7 // Specific patch version (if required)
+//#define UNITY_PATCH_VER 7 // Specific patch version (if required)
 
 //! =========================================================================================
 //! 2. HOOKING FRAMEWORK INTEGRATION (MACRO BINDINGS)

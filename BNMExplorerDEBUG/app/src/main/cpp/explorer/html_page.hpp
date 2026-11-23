@@ -130,6 +130,19 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
 .coll-ty{color:var(--type);font-size:10px;font-weight:600;white-space:nowrap;}
 .inst-item{padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--brd-light);border-radius:var(--rad-md);display:flex;align-items:center;justify-content:space-between;gap:8px;transition:background .12s;}
 .inst-item:hover{background:var(--sel);color:#fff;}
+.btn-freeze{background:var(--red);border-color:var(--red2);color:#f87171;}
+.btn-freeze.active{background:#b91c1c;border-color:#ef4444;color:#fff;}
+.btn-dump{background:#1d4ed8;border-color:#3b82f6;color:#fff;}
+.btn-dump:hover{background:#2563eb;}
+.hier-btns{display:flex;gap:4px;flex-wrap:wrap;}
+.dump-pre{margin:0;white-space:pre;font-family:Consolas,monospace;font-size:11px;color:var(--fg);overflow:auto;flex:1;padding:8px;background:var(--bg);}
+.calls-row{display:flex;gap:6px;align-items:baseline;padding:3px 10px;border-bottom:1px solid var(--brd-light);font-family:Consolas,monospace;font-size:11px;white-space:nowrap;}
+.calls-row .cr-t{color:var(--fg-dim);min-width:58px;}
+.calls-row .cr-c{color:var(--type);}
+.calls-row .cr-f{color:var(--mth);font-weight:700;}
+.calls-row .cr-a{color:var(--num);white-space:normal;word-break:break-all;}
+.calls-m{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--brd-light);font-size:11px;}
+.calls-m.ign{opacity:.45;}
 .pulse-dot{width:8px;height:8px;border-radius:50%;background:#d9d9d9;box-shadow:0 0 6px rgba(217,217,217,.5);display:inline-block;margin-right:4px;}
 .pulse-dot.off{background:#7a7a7a;box-shadow:none;}
 .mono-tag{font-size:9px;background:var(--bg3);border:1px solid var(--brd);color:var(--fg-dim);padding:1px 5px;border-radius:var(--rad-sm);margin-left:4px;}
@@ -218,7 +231,7 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
     </div>
     <div class="tree-wrap" id="tree-root"></div>
   </div>
-  <div class="main-area">
+<div class="main-area">
     <div class="tabs">
       <div class="tab active" onclick="switch_tab('scene')" id="tab-scene"><span class="g-icon">account_tree</span> Scene</div>
       <div class="tab" onclick="switch_tab('code')" id="tab-code"><span class="g-icon">code</span> Inspector</div>
@@ -226,8 +239,21 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
       <div class="tab" onclick="switch_tab('ctrl')" id="tab-ctrl"><span class="g-icon">gamepad</span> Controller</div>
       <div class="tab" onclick="switch_tab('loops')" id="tab-loops"><span class="g-icon">sync</span> Loops</div>
       <div class="tab" onclick="switch_tab('catcher')" id="tab-catcher"><span class="g-icon">track_changes</span> Catcher</div>
+      <div class="tab" onclick="switch_tab('calls')" id="tab-calls"><span class="g-icon">call_log</span> Calls</div>
       <div class="tab" onclick="switch_tab('lua')" id="tab-lua"><span class="g-icon">terminal</span> Console</div>
+      <div class="tab" onclick="switch_tab('ftrack')" id="tab-ftrack"><span class="g-icon">ac_unit</span> FreezeTracker</div>
       <div class="tab" onclick="switch_tab('docs')" id="tab-docs"><span class="g-icon">description</span> Docs</div>
+    </div>
+
+    <div class="panel" id="pnl-ftrack" style="padding:0;flex-direction:column;">
+      <div style="background:var(--bg3);padding:8px 12px;border-bottom:1px solid var(--brd);display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <span style="font-weight:700;">FreezeTracker</span>
+        <span id="ftrack-status" style="color:var(--fg-dim);font-size:11px;flex:1;">Enable Freeze in Scene to track blocked attempts</span>
+        <input class="inp" id="ftrack-filter" placeholder="Filter..." oninput="ftrack_render()" style="width:160px;">
+        <button class="btn" onclick="ftrack_poll()"><span class="g-icon">refresh</span> Refresh</button>
+        <button class="btn btn-red" onclick="ftrack_clear()"><span class="g-icon">clear_all</span> Clear</button>
+      </div>
+      <div id="ftrack-list" style="flex:1;overflow:auto;background:var(--bg);"></div>
     </div>
 
     <div class="panel active" id="pnl-scene">
@@ -236,8 +262,10 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
           <div class="hier-hdr">
             <div class="hier-title-row">
               <span style="font-weight:700;">Hierarchy</span>
-              <div style="display:flex;gap:4px;">
-                <button class="btn btn-live" id="btn-live-sync" onclick="toggle_live_sync()" title="Toggle live auto sync"><span class="pulse-dot" id="live-dot"></span> Live</button>
+              <div class="hier-btns">
+                <button class="btn btn-live" id="btn-live-sync" onclick="toggle_live_sync()" title="Toggle live auto sync"><span class="pulse-dot off" id="live-dot"></span> Live</button>
+                <button class="btn btn-dump" id="btn-dump" onclick="open_dump()" title="Dump entire scene: GameObjects, components, fields"><span class="g-icon">account_tree</span> Dump entire scene</button>
+                <button class="btn btn-freeze" id="btn-freeze" onclick="toggle_freeze()" title="Block Destroy and scene changes"><span class="g-icon">ac_unit</span> <span id="freeze-lbl">Freeze</span></button>
                 <button class="btn" onclick="load_scene(true)" title="Reload Scene"><span class="g-icon">refresh</span></button>
               </div>
             </div>
@@ -294,6 +322,28 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
         <button class="btn btn-red" onclick="remove_all_loops()"><span class="g-icon">delete</span> Stop All</button>
       </div>
       <div id="loops-list" style="margin-top:6px;"></div>
+    </div>
+
+    <div class="panel" id="pnl-calls" style="padding:0;flex-direction:column;">
+      <div style="background:var(--bg3);padding:8px 12px;border-bottom:1px solid var(--brd);display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <span style="font-weight:700;">Calls</span>
+        <button class="btn btn-grn" id="calls-scene-btn" onclick="calls_toggle_scene()"><span class="g-icon">visibility</span> Watch scene</button>
+        <label style="display:flex;gap:4px;align-items:center;font-size:11px;" title="Hook components of objects that appear later"><input type="checkbox" id="calls-auto" checked> auto-hook new</label>
+        <input class="inp" id="calls-ns" placeholder="Namespace" style="width:110px;">
+        <input class="inp" id="calls-cls" placeholder="Class" style="width:130px;">
+        <button class="btn" onclick="calls_watch()"><span class="g-icon">add</span> Watch class</button>
+        <button class="btn btn-org" id="calls-pause-btn" onclick="calls_toggle_pause()"><span class="g-icon">pause</span> Pause</button>
+        <button class="btn" onclick="calls_clear()"><span class="g-icon">clear_all</span> Clear</button>
+        <button class="btn" onclick="calls_show_methods()"><span class="g-icon">list</span> Methods</button>
+        <button class="btn btn-red" onclick="calls_unwatch(0)"><span class="g-icon">delete</span> Unwatch all</button>
+      </div>
+      <div style="padding:4px 12px;border-bottom:1px solid var(--brd);display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;">
+        <span id="calls-status" style="color:var(--fg-dim);flex:1;">Nothing watched yet</span>
+        <input class="inp" id="calls-filter" placeholder="Filter log..." oninput="calls_render()" style="width:150px;">
+        <span>Rate/s per method</span><input class="inp" id="calls-limit" type="number" value="100" onchange="calls_config()" style="width:70px;">
+        <label style="display:flex;gap:4px;align-items:center;"><input type="checkbox" id="calls-follow" checked> follow</label>
+      </div>
+      <div id="calls-log" style="flex:1;overflow:auto;background:var(--bg);"></div>
     </div>
 
     <div class="panel" id="pnl-catcher" style="padding:0;flex-direction:column;">
@@ -459,6 +509,37 @@ local same = wrap(found.addr)</pre>
   </div>
 </div>
 
+<div class="modal-overlay" id="dumpModal" onclick="close_dump(event)">
+  <div class="modal-box" style="width:900px;height:82vh;" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <span id="dumpTitle">Dump entire scene</span>
+      <div style="display:flex;gap:4px;">
+        <button class="btn" id="dump-copy" style="padding:2px 8px;display:none;" onclick="dump_copy()"><span class="g-icon">content_copy</span> Copy</button>
+        <button class="btn btn-grn" id="dump-dl" style="padding:2px 8px;display:none;" onclick="dump_download()"><span class="g-icon">download</span> .txt</button>
+        <button class="btn btn-org" id="dump-cancel" style="padding:2px 8px;display:none;" onclick="dump_cancel()"><span class="g-icon">stop</span> Cancel</button>
+        <button class="btn btn-red" style="padding:2px 8px;" onclick="close_dump()"><span class="g-icon">close</span></button>
+      </div>
+    </div>
+    <div id="dump-progress" style="padding:6px 12px;color:var(--fg-dim);font-size:11px;"></div>
+    <pre class="dump-pre" id="dump-text"></pre>
+  </div>
+</div>
+
+<div class="modal-overlay" id="callsMethodsModal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal-box" style="width:720px;" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <span id="callsMethodsTitle">Hooked methods</span>
+      <div style="display:flex;gap:4px;">
+        <button class="btn" style="padding:2px 8px;" onclick="calls_ignore_all(true)">Ignore all</button>
+        <button class="btn" style="padding:2px 8px;" onclick="calls_ignore_all(false)">Unignore all</button>
+        <button class="btn btn-red" style="padding:2px 8px;" onclick="document.getElementById('callsMethodsModal').classList.remove('open')"><span class="g-icon">close</span></button>
+      </div>
+    </div>
+    <div style="padding:6px 10px;"><input class="inp" id="callsMethodsFilter" placeholder="Filter methods..." oninput="calls_render_methods()"></div>
+    <div class="modal-body" id="callsMethodsList" style="padding:0;"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="collModal" onclick="close_collection(event)">
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="modal-hdr">
@@ -507,6 +588,8 @@ let all_cls_cache=null;
 let full_scene_data=[];
 let scene_roots=[];
 let selected_go_addr=null;
+let scene_inspect_generation=0;
+let scene_load_generation=0;
 let selected_go_name="";
 let open_scene_nodes=new Set();
 let live_sync_active=false;
@@ -708,9 +791,10 @@ function switch_tab(id){
   document.getElementById(`pnl-${id}`).classList.add('active');
   if(id==='loops')refresh_loops_ui();
   if(id==='catcher')refresh_catcher();
+  if(id==='calls')calls_on_show();
   if(id==='lua')ws_on_show();
+  if(id==='ftrack')ftrack_on_show();
 }
-
 async function do_search(e){
   let q=document.getElementById('gSearch').value.toLowerCase();
   if(!q){await init();return;}
@@ -737,8 +821,12 @@ async function do_search(e){
 }
 
 async function load_scene(manual_reload){
+  const requestId=++scene_load_generation;
   try{
-    full_scene_data=await fetch('/api/scene').then(r=>r.json());
+    let ls=await fetch('/api/scene').then(r=>r.json());
+    if(requestId!==scene_load_generation||!Array.isArray(ls))return;
+    full_scene_data=ls;
+    live_scene_sig=scene_signature(full_scene_data);
     filter_scene();
     if(selected_go_addr){
       let current=full_scene_data.find(g=>g.addr===selected_go_addr);
@@ -750,6 +838,22 @@ async function load_scene(manual_reload){
   }catch(e){}
 }
 
+let insp_sig='';
+let live_scene_sig='';
+let live_busy=false;
+const live_interval_ms=4000;
+
+function insp_signature(d){
+  return (d.addr||'')+'|'+(d.scripts||[]).map(s=>s.addr).join(',');
+}
+
+function scene_signature(list){
+  let parts=new Array(list.length);
+  for(let i=0;i<list.length;i++){let g=list[i];parts[i]=g.addr+':'+g.parent+':'+(g.active?1:0)+':'+g.name;}
+  parts.sort();
+  return parts.join('|');
+}
+
 function toggle_live_sync(){
   live_sync_active=!live_sync_active;
   let btn=document.getElementById('btn-live-sync');
@@ -757,19 +861,115 @@ function toggle_live_sync(){
   if(live_sync_active){
     btn.classList.add('active');
     dot.classList.remove('off');
-    live_sync_timer=setInterval(async()=>{
-      await load_scene(false);
-      if(selected_go_addr){
-        let d=await fetch(`/api/scene/inspect?addr=${selected_go_addr}`).then(r=>r.json()).catch(()=>null);
-        if(d&&d.transform&&!d.stale){
-          update_transform_inputs_live(d.transform);
-        }
-      }
-    },2500);
+    live_schedule(0);
   }else{
     btn.classList.remove('active');
     dot.classList.add('off');
-    if(live_sync_timer){clearInterval(live_sync_timer);live_sync_timer=null;}
+    if(live_sync_timer){clearTimeout(live_sync_timer);live_sync_timer=null;}
+  }
+}
+
+function live_schedule(ms){
+  if(live_sync_timer)clearTimeout(live_sync_timer);
+  live_sync_timer=setTimeout(live_tick,ms);
+}
+
+async function live_tick(){
+  live_sync_timer=null;
+  if(!live_sync_active)return;
+  if(live_busy){live_schedule(live_interval_ms);return;}
+  live_busy=true;
+  try{
+    let list=await fetch('/api/scene').then(r=>r.json());
+    if(Array.isArray(list)){
+      let sig=scene_signature(list);
+      if(sig!==live_scene_sig){
+        live_scene_sig=sig;
+        full_scene_data=list;
+        let tw=document.getElementById('scene-tree');
+        let st=tw?tw.scrollTop:0;
+        filter_scene();
+        if(tw)tw.scrollTop=st;
+      }
+    }
+    const inspected_addr=selected_go_addr;
+    if(inspected_addr){
+      let d=await fetch(`/api/scene/inspect?addr=${inspected_addr}`).then(r=>r.json()).catch(()=>null);
+      if(selected_go_addr===inspected_addr&&d&&!d.error){
+        if(d.stale||!d.addr){
+          document.getElementById('scene-insp').innerHTML='<div style="padding:30px;text-align:center;color:#f87171;">Object is no longer active in scene</div>';
+          selected_go_addr=null;
+          insp_sig='';
+        }else if(insp_signature(d)!==insp_sig){
+          let insp=document.getElementById('scene-insp');
+          let ae=document.activeElement;
+          if(!(ae&&insp.contains(ae)&&(ae.tagName==='INPUT'))){
+            let st=insp.scrollTop;
+            await inspect_go(inspected_addr);
+            if(selected_go_addr===inspected_addr)insp.scrollTop=st;
+          }
+        }else{
+          live_patch_inspector(d);
+        }
+      }
+    }
+  }catch(e){}
+  live_busy=false;
+  if(live_sync_active)live_schedule(live_interval_ms);
+}
+
+function live_color_hex(v){
+  if(typeof v==='string'){try{v=JSON.parse(v);}catch(e){return null;}}
+  if(!Array.isArray(v))return null;
+  return '#'+[0,1,2].map(i=>Math.max(0,Math.min(255,Math.round((v[i]||0)*255))).toString(16).padStart(2,'0')).join('');
+}
+
+function live_vals(v,t){
+  if(typeof v==='string'){try{v=JSON.parse(v);}catch(e){}}
+  if(Array.isArray(v))return v;
+  if(v&&typeof v==='object'){
+    if(String(t).includes('Rect'))return [v.x,v.y,v.w,v.h];
+    return [v.x,v.y,v.z,v.w];
+  }
+  return [v];
+}
+
+function live_set_input(el,v){
+  if(document.activeElement===el)return;
+  if(el.type==='checkbox'){el.checked=(v===true||v==='true');return;}
+  if(el.type==='color'){let hx=live_color_hex(v);if(hx&&el.value!==hx)el.value=hx;return;}
+  let s=(v===null||v===undefined)?'':String(v).replace(/^"|"$/g,'');
+  if(el.value!==s)el.value=s;
+}
+
+function live_patch_inspector(d){
+  let insp=document.getElementById('scene-insp');
+  if(!insp)return;
+  let hdr=insp.querySelector('.insp-hdr');
+  if(hdr){
+    let cb=hdr.querySelector('input[type=checkbox]');
+    if(cb&&document.activeElement!==cb)cb.checked=!!d.active;
+    let nm=hdr.querySelector('input.inp');
+    if(nm&&document.activeElement!==nm&&nm.value!==d.name)nm.value=d.name||'';
+  }
+  if(d.transform)update_transform_inputs_live(d.transform);
+  let map={};
+  insp.querySelectorAll('[data-tt="script"]').forEach(el=>{
+    let k=el.dataset.addr+'\u0000'+el.dataset.pid;
+    (map[k]=map[k]||[]).push(el);
+  });
+  for(let sc of d.scripts||[]){
+    let ecb=insp.querySelector(`input[data-comp="${sc.addr}"]`);
+    if(ecb&&document.activeElement!==ecb)ecb.checked=!!sc.enabled;
+    for(let r of sc.fields||[]){
+      let els=map[sc.addr+'\u0000'+r.name];
+      if(!els)continue;
+      if(els.length===1)live_set_input(els[0],r.val);
+      else{
+        let vals=live_vals(r.val,r.type);
+        els.forEach((el,i)=>live_set_input(el,vals[i]));
+      }
+    }
   }
 }
 
@@ -785,12 +985,41 @@ function update_transform_inputs_live(t){
 
 function filter_scene(){
   let q=document.getElementById('sceneSearch').value.toLowerCase();
-  let map={};scene_roots=[];
+  let map=Object.create(null);
+  let nodes=[];
+  scene_roots=[];
   for(let g of full_scene_data){
-    if(!map[g.addr])map[g.addr]={...g,children:[]};
-    else Object.assign(map[g.addr],g);
-    if(!g.parent||g.parent==="0"||g.parent===0)scene_roots.push(map[g.addr]);
-    else{if(!map[g.parent])map[g.parent]={children:[]};map[g.parent].children.push(map[g.addr]);}
+    if(!g||!g.addr)continue;
+    let node=map[g.addr];
+    if(!node){node={...g,children:[]};map[g.addr]=node;nodes.push(node);}
+    else Object.assign(node,g);
+  }
+  let linked=new Set();
+  for(let g of full_scene_data){
+    if(!g||!g.addr)continue;
+    let node=map[g.addr];
+    let parent=(g.parent&&g.parent!=="0"&&g.parent!==0)?map[g.parent]:null;
+    if(parent&&parent!==node){
+      parent.children.push(node);
+      linked.add(g.addr);
+    }else{
+      scene_roots.push(node);
+    }
+  }
+  let visited=new Set();
+  function mark_scene_seen(node,path){
+    if(!node||visited.has(node.addr)||path.has(node.addr))return;
+    visited.add(node.addr);
+    let next=new Set(path);
+    next.add(node.addr);
+    for(let child of node.children||[])mark_scene_seen(child,next);
+  }
+  for(let root of scene_roots)mark_scene_seen(root,new Set());
+  for(let node of nodes){
+    if(!visited.has(node.addr)){
+      scene_roots.push(node);
+      mark_scene_seen(node,new Set());
+    }
   }
   document.getElementById('scene-tree').innerHTML=scene_roots.map(n=>build_scene_node(n,q)).filter(Boolean).join('');
   if(selected_go_addr){
@@ -807,27 +1036,38 @@ function toggle_scene_expand(addr,el){
   if(kids){kids.classList.toggle('open');arr.classList.toggle('open');}
 }
 
-function build_scene_node(n,q){
+function build_scene_node(n,q,path=new Set()){
+  if(!n||path.has(n.addr))return'';
+  let next=new Set(path);
+  next.add(n.addr);
   let matches=!q||n.name?.toLowerCase().includes(q);
-  let child_html=(n.children||[]).map(c=>build_scene_node(c,q)).filter(Boolean).join('');
+  let child_html=(n.children||[]).map(c=>build_scene_node(c,q,next)).filter(Boolean).join('');
   if(!matches&&!child_html)return'';
   let has_kids=(n.children||[]).length>0;
-  let is_open=open_scene_nodes.has(n.addr)||(q&&matches);
+  let is_open=open_scene_nodes.has(n.addr)||(q&&(matches||child_html.length>0));
   return`<ul class="tree-node"><div class="tree-nc" data-go="${n.addr}" onclick="inspect_go('${n.addr}')"><span class="arr${is_open?' open':''}" onclick="event.stopPropagation();toggle_scene_expand('${n.addr}',this)">${has_kids?'&#9654;':''}</span><div class="ico"><span class="g-icon" style="font-size:15px;">deployed_code</span></div><span style="color:${n.active?'var(--fg)':'#7a7a7a'}">${esc(n.name)}</span></div>${has_kids?`<div class="kids${is_open?' open':''}">${child_html}</div>`:''}</ul>`;
 }
 
 async function inspect_go(addr){
+  const requestId=++scene_inspect_generation;
   document.querySelectorAll('#scene-tree .tree-nc').forEach(e=>e.classList.remove('active'));
   let el=document.querySelector(`[data-go="${addr}"]`);
   if(el)el.classList.add('active');
   selected_go_addr=addr;
-  let d=await fetch(`/api/scene/inspect?addr=${addr}`).then(r=>r.json());
+  let d=await fetch(`/api/scene/inspect?addr=${addr}`).then(r=>r.json()).catch(()=>({error:'request failed'}));
+  if(requestId!==scene_inspect_generation||selected_go_addr!==addr)return;
+  if(d.error){
+    let msg=d.error==='timeout'?'Game thread is busy, tap the object again':esc(d.error);
+    document.getElementById('scene-insp').innerHTML=`<div style="padding:30px;text-align:center;color:#fbbf24;">${msg}</div>`;
+    return;
+  }
   if(d.stale||!d.addr){
     document.getElementById('scene-insp').innerHTML='<div style="padding:30px;text-align:center;color:#f87171;">Object is no longer active in scene</div>';
     selected_go_addr=null;
     return;
   }
   selected_go_name=d.name||"GameObject";
+  insp_sig=insp_signature(d);
   let h=`<div class="insp-hdr">
     <input type="checkbox" ${d.active?'checked':''} onchange="update_go('${d.addr}','gameobject','active',this.checked)">
     <div class="ico" style="color:var(--type)"><span class="g-icon">deployed_code</span></div>
@@ -847,9 +1087,12 @@ async function inspect_go(addr){
 
 async function delete_go(addr){
   if(!confirm('Delete this GameObject?'))return;
-  await fetch('/api/scene/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({addr})});
-  document.getElementById('scene-insp').innerHTML='<div style="padding:30px;text-align:center;color:var(--fg-dim);">Deleted</div>';
+  let result=await fetch('/api/scene/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({addr})}).then(r=>r.json()).catch(()=>({ok:false,error:'request failed'}));
+  if(!result.ok){alert('Delete failed: '+(result.error||'unknown error'));return;}
+  scene_inspect_generation++;
+  document.getElementById('scene-insp').innerHTML='<div style="padding:30px;text-align:center;color:var(--fg-dim);">Destroy scheduled</div>';
   selected_go_addr=null;
+  await new Promise(resolve=>setTimeout(resolve,350));
   await load_scene(true);
 }
 
@@ -896,8 +1139,10 @@ async function add_component(full_type){
 
 async function remove_component(comp_addr,go_addr){
   if(!confirm('Remove this component?'))return;
-  await fetch('/api/scene/removecomponent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({addr:comp_addr})});
-  inspect_go(go_addr);
+  let result=await fetch('/api/scene/removecomponent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({addr:comp_addr})}).then(r=>r.json()).catch(()=>({ok:false,error:'request failed'}));
+  if(!result.ok){alert('Remove failed: '+(result.error||'unknown error'));return;}
+  await new Promise(resolve=>setTimeout(resolve,350));
+  if(selected_go_addr===go_addr)inspect_go(go_addr);
 }
 
 function parse_obj_ref(v){
@@ -1030,7 +1275,7 @@ function build_script_comp_ui(sc,go_addr){
   let hdr_cls=is_builtin?'builtin-hdr':'script-hdr';
   let col=is_builtin?'var(--kw)':'var(--mth)';
   let h=`<div class="comp"><div class="comp-hdr ${hdr_cls}" onclick="toggle_comp('${uid}')">
-    <input type="checkbox" ${sc.enabled?'checked':''} onchange="update_script_enabled('${sc.addr}',this.checked)" onclick="event.stopPropagation()" style="margin-right:4px;">
+    <input type="checkbox" data-comp="${sc.addr}" ${sc.enabled?'checked':''} onchange="update_script_enabled('${sc.addr}',this.checked)" onclick="event.stopPropagation()" style="margin-right:4px;">
     <div class="ico" style="color:${col}"><span class="g-icon">${is_builtin?'widgets':'terminal'}</span></div>
     <span style="color:${col}">${esc(sc.name)}</span>
     ${sc.ns?`<span style="opacity:.6;font-size:10px;margin-left:4px;">${esc(sc.ns)}</span>`:''}
@@ -1327,6 +1572,215 @@ async function poll_lua(){
 }
 
 setInterval(poll_lua,1000);
+
+let dump_timer=null;
+async function open_dump(){
+  document.getElementById('dumpModal').classList.add('open');
+  document.getElementById('dump-text').textContent='';
+  ['dump-copy','dump-dl'].forEach(i=>document.getElementById(i).style.display='none');
+  document.getElementById('dump-cancel').style.display='inline-flex';
+  document.getElementById('dump-progress').textContent='Starting...';
+  let r=await fetch('/api/scene/dump/start',{method:'POST'}).then(r=>r.json()).catch(()=>null);
+  if(!r||(!r.ok&&r.error!=='a dump is already running')){
+    document.getElementById('dump-progress').textContent='Failed: '+(r&&r.error?r.error:'no response');
+    document.getElementById('dump-cancel').style.display='none';
+    return;
+  }
+  if(dump_timer)clearInterval(dump_timer);
+  dump_timer=setInterval(dump_poll,700);
+}
+
+async function dump_poll(){
+  let s=await fetch('/api/scene/dump/status').then(r=>r.json()).catch(()=>null);
+  if(!s)return;
+  let pr=document.getElementById('dump-progress');
+  if(s.running){
+    pr.textContent=`Dumping ${s.processed} / ${s.total} objects, ${(s.size/1024).toFixed(0)} KB`;
+    return;
+  }
+  if(!s.done)return;
+  clearInterval(dump_timer);dump_timer=null;
+  document.getElementById('dump-cancel').style.display='none';
+  pr.textContent=`Done: ${s.processed} objects, ${(s.size/1024).toFixed(0)} KB${s.error?' ('+s.error+')':''}`;
+  let t=await fetch('/api/scene/dump/result').then(r=>r.text()).catch(()=>'');
+  let shown=t.length>600000?t.slice(0,600000)+'\n... preview truncated, use .txt to get everything':t;
+  document.getElementById('dump-text').textContent=shown;
+  document.getElementById('dump-copy').style.display='inline-flex';
+  document.getElementById('dump-dl').style.display='inline-flex';
+}
+
+async function dump_cancel(){
+  await fetch('/api/scene/dump/cancel',{method:'POST'}).catch(()=>{});
+}
+
+function dump_download(){
+  let a=document.createElement('a');
+  a.href='/api/scene/dump/result?download=1';a.download='scene_dump.txt';a.click();
+}
+
+async function dump_copy(){
+  let t=await fetch('/api/scene/dump/result').then(r=>r.text()).catch(()=>'');
+  try{await navigator.clipboard.writeText(t);}catch(e){
+    let ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();
+  }
+}
+
+function close_dump(e){
+  if(!e||e.target===document.getElementById('dumpModal')){
+    document.getElementById('dumpModal').classList.remove('open');
+  }
+}
+
+async function refresh_freeze(){
+  let d=await fetch('/api/freeze').then(r=>r.json()).catch(()=>null);
+  if(d)apply_freeze_ui(d.frozen,d);
+}
+
+function apply_freeze_ui(on,d){
+  let b=document.getElementById('btn-freeze');
+  let l=document.getElementById('freeze-lbl');
+  if(!b)return;
+  b.classList.toggle('active',!!on);
+  l.textContent=on?`Frozen (${(d&&d.blocked_destroy||0)+(d&&d.blocked_scene||0)})`:'Freeze';
+}
+
+async function toggle_freeze(){
+  let cur=document.getElementById('btn-freeze').classList.contains('active');
+  let d=await fetch('/api/freeze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:!cur})}).then(r=>r.json()).catch(()=>null);
+  if(!d){alert('Freeze request failed');return;}
+  if(!d.ok){alert('Freeze failed: '+(d.error||'unknown'));return;}
+  apply_freeze_ui(d.frozen,d);
+}
+setInterval(()=>{if(document.getElementById('btn-freeze')&&document.getElementById('btn-freeze').classList.contains('active'))refresh_freeze();},2000);
+refresh_freeze();
+
+let calls_seq=0;
+let calls_items=[];
+let calls_methods=[];
+let calls_timer=null;
+let calls_paused=false;
+const calls_max_ui=4000;
+
+function calls_on_show(){
+  calls_poll_status();
+  if(!calls_timer)calls_timer=setInterval(calls_tick,800);
+}
+
+async function calls_tick(){
+  if(!document.getElementById('pnl-calls').classList.contains('active')){clearInterval(calls_timer);calls_timer=null;return;}
+  try{
+    let d=await fetch('/api/calls/log?since='+calls_seq).then(r=>r.json());
+    if(d.latest<calls_seq){calls_items=[];calls_seq=0;}
+    if(d.items&&d.items.length){
+      calls_items=calls_items.concat(d.items);
+      if(calls_items.length>calls_max_ui)calls_items=calls_items.slice(calls_items.length-calls_max_ui);
+      calls_seq=d.seq;
+      calls_render();
+    }else if(d.latest===0&&calls_items.length){calls_items=[];calls_seq=0;calls_render();}
+    calls_poll_status();
+  }catch(e){}
+}
+
+async function calls_poll_status(){
+  let s=await fetch('/api/calls/status').then(r=>r.json()).catch(()=>null);
+  if(!s)return;
+  calls_paused=s.paused;
+  let pb=document.getElementById('calls-pause-btn');
+  pb.innerHTML=s.paused?'<span class="g-icon">play_arrow</span> Resume':'<span class="g-icon">pause</span> Pause';
+  calls_scene_on=!!(s.scene&&s.scene.on);
+  let sb=document.getElementById('calls-scene-btn');
+  if(sb)sb.innerHTML=calls_scene_on?'<span class="g-icon">visibility_off</span> Stop scene watch':'<span class="g-icon">visibility</span> Watch scene';
+  let st=`${s.hooked} methods hooked`;
+  if(s.scene&&s.scene.on)st+=` | scene: ${s.scene.classes} classes, ${s.scene.queued} queued, ${s.scene.failed} skipped`;
+  if(s.scene&&s.scene.main_thread_error)st+=' | '+esc(s.scene.main_thread_error)+' (hooking from a background thread)';
+  if(s.targets&&s.targets.length)st+=' | '+s.targets.map(t=>`${esc(t.label)} (${t.count}) <a href="#" style="color:#f87171" onclick="calls_unwatch(${t.id});return false;">x</a>`).join(', ');
+  if(s.job&&s.job.running)st+=` | hooking ${s.job.done}/${s.job.total} (ok ${s.job.hooked}, failed ${s.job.failed})`;
+  else if(s.job&&s.job.error)st+=' | '+esc(s.job.error);
+  document.getElementById('calls-status').innerHTML=st;
+}
+
+function calls_render(){
+  let q=(document.getElementById('calls-filter').value||'').toLowerCase();
+  let items=calls_items;
+  if(q)items=items.filter(i=>((i.c||'')+'::'+(i.f||'')+' '+(i.a||'')).toLowerCase().includes(q));
+  let t0=items.length?items[0].t:0;
+  let out=document.getElementById('calls-log');
+  let h=items.slice(-1500).map(i=>{
+    let inst=i.i?` <span style="color:var(--fg-dim)">${esc(i.i)}</span>`:'';
+    return `<div class="calls-row"><span class="cr-t">${((i.t-t0)/1000).toFixed(2)}</span><span><span class="cr-c">${esc(i.c||'?')}</span>::<span class="cr-f" onclick="calls_ignore_one(${i.m},true)" title="Tap to ignore this method">${esc(i.f||'?')}</span>${inst}(<span class="cr-a">${esc(i.a)}</span>)</span></div>`;
+  }).join('');
+  out.innerHTML=h;
+  if(document.getElementById('calls-follow').checked)out.scrollTop=out.scrollHeight;
+}
+
+async function calls_watch(){
+  let ns=document.getElementById('calls-ns').value.trim();
+  let cls=document.getElementById('calls-cls').value.trim();
+  if(!cls){alert('Enter a class name');return;}
+  let r=await fetch('/api/calls/watch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asm:'',ns,cls})}).then(r=>r.json()).catch(()=>({error:'request failed'}));
+  if(r.error)alert(r.error);
+  calls_on_show();
+}
+
+let calls_scene_on=false;
+async function calls_toggle_scene(){
+  let on=!calls_scene_on;
+  let auto=document.getElementById('calls-auto').checked;
+  let r=await fetch('/api/calls/scene',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on,auto})}).then(r=>r.json()).catch(()=>null);
+  if(!r){alert('Request failed');return;}
+  calls_on_show();
+  calls_poll_status();
+}
+
+async function calls_unwatch(target){
+  await fetch('/api/calls/unwatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target})});
+  calls_poll_status();
+}
+
+async function calls_toggle_pause(){
+  let r=await fetch('/api/calls/pause',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paused:!calls_paused})}).then(r=>r.json());
+  calls_paused=r.paused;calls_poll_status();
+}
+
+async function calls_clear(){
+  await fetch('/api/calls/clear',{method:'POST'});
+  calls_items=[];calls_seq=0;calls_render();
+}
+
+async function calls_config(){
+  let lim=parseInt(document.getElementById('calls-limit').value);
+  if(isNaN(lim))return;
+  await fetch('/api/calls/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({limit:lim})});
+}
+
+async function calls_ignore_one(id,ignored){
+  await fetch('/api/calls/ignore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id],ignored})});
+  if(document.getElementById('callsMethodsModal').classList.contains('open'))calls_show_methods();
+}
+
+async function calls_ignore_all(ignored){
+  await fetch('/api/calls/ignore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true,ignored})});
+  calls_show_methods();
+}
+
+async function calls_show_methods(){
+  document.getElementById('callsMethodsModal').classList.add('open');
+  let d=await fetch('/api/calls/methods').then(r=>r.json()).catch(()=>null);
+  calls_methods=d?d.methods:[];
+  document.getElementById('callsMethodsTitle').textContent='Hooked methods ('+(d?d.total:0)+')';
+  calls_render_methods();
+}
+
+function calls_render_methods(){
+  let q=(document.getElementById('callsMethodsFilter').value||'').toLowerCase();
+  let list=calls_methods.filter(m=>!q||(m.c+'::'+m.f).toLowerCase().includes(q)).slice(0,600);
+  document.getElementById('callsMethodsList').innerHTML=list.map(m=>`<div class="calls-m${m.i?' ign':''}">
+    <input type="checkbox" ${m.i?'':'checked'} title="Record this method" onchange="calls_ignore_one(${m.id},!this.checked)">
+    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;"><span style="color:var(--type)">${esc(m.c)}</span>::<span style="color:var(--mth);font-weight:700;">${esc(m.f)}</span>(${esc(m.p)})</span>
+    <span style="color:var(--num)">${m.n}${m.d?` <span style="color:#f87171">(-${m.d})</span>`:''}</span></div>`).join('')||'<div style="padding:20px;text-align:center;color:var(--fg-dim);">No hooked methods</div>';
+}
+
+
 
 
 const ws={entries:[],open:[],active:null,buf:{},expanded:{},sel_dir:'',side:'files',info:null,ready:false,zip_name:'workspace'};
@@ -1752,6 +2206,50 @@ async function ws_delete_device_zip(name){
     }
   });
 })();
+
+let ftrack_items=[];
+let ftrack_timer=null;
+
+function ftrack_on_show(){
+  ftrack_poll();
+  if(!ftrack_timer)ftrack_timer=setInterval(ftrack_tick,1000);
+}
+
+async function ftrack_tick(){
+  if(!document.getElementById('pnl-ftrack').classList.contains('active')){clearInterval(ftrack_timer);ftrack_timer=null;return;}
+  await ftrack_poll();
+}
+
+async function ftrack_poll(){
+  let d=await fetch('/api/freeze/tracker').then(r=>r.json()).catch(()=>null);
+  if(!d)return;
+  ftrack_items=(d.items||[]).slice().sort((a,b)=>b.count-a.count);
+  let total=ftrack_items.reduce((s,x)=>s+x.count,0);
+  document.getElementById('ftrack-status').textContent=`${d.frozen?'Freeze ON':'Freeze OFF'} | ${ftrack_items.length} unique callers | ${total} blocked`;
+  ftrack_render();
+}
+
+function ftrack_render(){
+  let q=(document.getElementById('ftrack-filter').value||'').toLowerCase();
+  let list=q?ftrack_items.filter(x=>(x.caller+' '+x.action+' '+(x.target||'')).toLowerCase().includes(q)):ftrack_items;
+  let out=document.getElementById('ftrack-list');
+  if(!list.length){
+    out.innerHTML='<div style="padding:30px;text-align:center;color:var(--fg-dim);">No blocked attempts recorded yet</div>';
+    return;
+  }
+  out.innerHTML=list.map(x=>{
+    let badge=x.in_scene?'<span style="color:#4ec9b0;font-size:11px;margin-left:6px;">[SCENE]</span>':'<span style="color:var(--fg-dim);font-size:11px;margin-left:6px;">[OFF-SCENE]</span>';
+    let tgt=x.target&&x.target!=='none'?`<div style="color:var(--fg-dim);font-size:11px;margin-top:2px;">Target: ${esc(x.target)}</div>`:'';
+    return `<div class="calls-row" style="align-items:flex-start;"><span class="cr-t" style="color:var(--str);font-weight:700;">x${x.count}</span><div style="flex:1;"><span class="cr-c">${esc(x.caller)}</span> <span style="color:var(--fg-dim)">-&gt;</span> <span class="cr-f">${esc(x.action)}</span>${badge}${tgt}</div></div>`;
+  }).join('');
+}
+
+async function ftrack_clear(){
+  await fetch('/api/freeze/tracker/clear',{method:'POST'});
+  ftrack_items=[];
+  ftrack_render();
+  ftrack_poll();
+}
 
 init();
 </script>

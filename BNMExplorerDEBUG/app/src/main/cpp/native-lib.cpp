@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <algorithm>
+#include <unordered_set>
+#include <unordered_map>
 #include <initializer_list>
 #include <android/log.h>
 #include "Include/BNMResolve.hpp"
@@ -24,6 +26,7 @@
 #include "explorer/workspace_api.hpp"
 
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "BNMExplorer", __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, "BNMExplorer", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "BNMExplorer", __VA_ARGS__)
 
 using namespace BNM;
@@ -313,6 +316,69 @@ static MethodBase find_objs_method() {
     return m;
 }
 
+static bool method_has_pointer(const MethodBase& method) {
+    auto* info = method.GetInfo();
+    return info && is_valid_pointer(info) && info->methodPointer &&
+           is_valid_pointer((const void*)info->methodPointer);
+}
+
+static MethodBase find_resources_objects_all_method() {
+    static MethodBase method;
+    if (method.IsValid() && method_has_pointer(method)) return method;
+    Class resources_cls("UnityEngine", "Resources");
+    if (!resources_cls.IsValid()) return {};
+    for (auto& candidate : resources_cls.GetMethods(false)) {
+        auto* info = candidate.GetInfo();
+        if (!info || !is_valid_pointer(info) || !info->name || !is_valid_pointer(info->name) ||
+            strcmp(info->name, "FindObjectsOfTypeAll") != 0 || info->parameters_count != 1 ||
+            info->is_generic || !method_has_pointer(candidate)) continue;
+        std::string parameter = get_param_type_name(info, 0);
+        if (parameter == "System.Type" || parameter == "Type" ||
+            parameter.find("System.Type") != std::string::npos) {
+            method = candidate;
+            break;
+        }
+    }
+    return method;
+}
+
+static MethodBase find_destroy_object_method() {
+    static MethodBase method;
+    if (method.IsValid() && method_has_pointer(method)) return method;
+    Class object_cls("UnityEngine", "Object");
+    if (!object_cls.IsValid()) return {};
+    for (auto& candidate : object_cls.GetMethods(false)) {
+        auto* info = candidate.GetInfo();
+        if (!info || !is_valid_pointer(info) || !info->name || !is_valid_pointer(info->name) ||
+            strcmp(info->name, "Destroy") != 0 || info->parameters_count != 1 ||
+            info->is_generic || !method_has_pointer(candidate)) continue;
+        std::string parameter = get_param_type_name(info, 0);
+        if (parameter == "UnityEngine.Object" || parameter == "Object" ||
+            parameter.find("UnityEngine.Object") != std::string::npos) {
+            method = candidate;
+            break;
+        }
+    }
+    return method;
+}
+
+static MethodBase find_objs_method_inactive() {
+    static MethodBase m;
+    if (m.IsValid()) return m;
+    Class oc("UnityEngine", "Object");
+    for (auto& mt : oc.GetMethods(false)) {
+        auto* mi = mt.GetInfo();
+        if (mi && is_valid_pointer(mi) && mi->name && is_valid_pointer(mi->name) && strcmp(mi->name, "FindObjectsOfType") == 0 && mi->parameters_count == 2 && !mi->is_generic) {
+            std::string pn = get_param_type_name(mi, 0);
+            std::string pb = get_param_type_name(mi, 1);
+            if (pn.find("Type") != std::string::npos && pb.find("Boolean") != std::string::npos) {
+                m = mt; break;
+            }
+        }
+    }
+    return m;
+}
+
 static Il2CppObject* sys_type_of(const std::string& aqn) {
     Class tc("System", "Type", Image("mscorlib.dll"));
     if (!tc.IsValid()) return nullptr;
@@ -320,15 +386,14 @@ static Il2CppObject* sys_type_of(const std::string& aqn) {
     return gt.IsValid() ? gt(CreateMonoString(aqn.c_str())) : nullptr;
 }
 
+static bool is_unity_object_instance(Il2CppObject* obj);
+
 static bool is_object_alive(Il2CppObject* obj) {
     if (!obj || !is_valid_pointer(obj) || !is_valid_pointer(obj->klass)) return false;
-    try {
-        Method<bool> m(Class("UnityEngine", "Object").GetMethod("op_Implicit", 1));
-        if (m.IsValid()) return m(obj);
-        auto* k = obj->klass;
-        if (!k || !is_valid_pointer(k) || !is_valid_pointer(k->name)) return false;
-        return true;
-    } catch(...) { return false; }
+    if (is_unity_object_instance(obj)) {
+        return reinterpret_cast<BNM::UnityEngine::Object*>(obj)->IsValid();
+    }
+    return obj->klass->name && is_valid_pointer(obj->klass->name);
 }
 
 static bool is_unity_object_instance(Il2CppObject* obj) {
@@ -339,6 +404,17 @@ static bool is_unity_object_instance(Il2CppObject* obj) {
                 k->namespaze && is_valid_pointer(k->namespaze) && strcmp(k->namespaze, "UnityEngine") == 0) {
                 return true;
             }
+        }
+    } catch(...) {}
+    return false;
+}
+
+static bool il2cpp_class_has_base(Il2CppClass* klass, const char* namespaze, const char* name) {
+    if (!klass || !is_valid_pointer(klass) || !namespaze || !name) return false;
+    try {
+        for (auto* cur = klass; cur && is_valid_pointer(cur); cur = cur->parent) {
+            if (!cur->name || !is_valid_pointer(cur->name) || !cur->namespaze || !is_valid_pointer(cur->namespaze)) continue;
+            if (strcmp(cur->name, name) == 0 && strcmp(cur->namespaze, namespaze) == 0) return true;
         }
     } catch(...) {}
     return false;
@@ -649,8 +725,8 @@ static bool get_collection_info(Il2CppObject* o, collection_info& ci) {
             return true;
         }
         static const char* count_only[][2] = {
-            {"HashSet`1", "HashSet"}, {"Queue`1", "Queue"}, {"Stack`1", "Stack"},
-            {"LinkedList`1", "LinkedList"}, {"SortedList`2", "SortedList"}, {"SortedDictionary`2", "SortedDictionary"}
+                {"HashSet`1", "HashSet"}, {"Queue`1", "Queue"}, {"Stack`1", "Stack"},
+                {"LinkedList`1", "LinkedList"}, {"SortedList`2", "SortedList"}, {"SortedDictionary`2", "SortedDictionary"}
         };
         for (auto& e : count_only) {
             if (n == e[0]) {
@@ -1127,7 +1203,12 @@ static std::string instances_json(const std::string& a, const std::string& ns, c
     std::ostringstream j;
     j << "{\"instances\":[";
     try {
-        auto* arr = Method<Array<Il2CppObject*>*>(fm)(st);
+        Array<Il2CppObject*>* arr = nullptr;
+        auto fm_inactive = find_objs_method_inactive();
+        if (fm_inactive.IsValid()) {
+            try { arr = Method<Array<Il2CppObject*>*>(fm_inactive)(st, true); } catch(...) { arr = nullptr; }
+        }
+        if (!arr) arr = Method<Array<Il2CppObject*>*>(fm)(st);
         if (arr && arr->capacity > 0) {
             bool first = true;
             Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine","Object").GetMethod("get_name"));
@@ -1285,59 +1366,205 @@ static std::string find_instances_json(const std::string& type_name) {
     return j.str();
 }
 
+static std::mutex g_scene_cache_mutex;
+static std::string g_scene_cache;
+static double g_scene_cache_updated = 0.0;
+
+static void invalidate_scene_cache() {
+    std::lock_guard<std::mutex> lock(g_scene_cache_mutex);
+    g_scene_cache.clear();
+    g_scene_cache_updated = 0.0;
+}
+
+static std::mutex g_scene_registry_mutex;
+static std::unordered_set<uintptr_t> g_scene_registry;
+static bool g_scene_registry_ready = true;
+
+static void scene_registry_invalidate() {
+    std::lock_guard<std::mutex> lock(g_scene_registry_mutex);
+    g_scene_registry.clear();
+    g_scene_registry_ready = false;
+}
+
+static void scene_registry_publish(std::unordered_set<uintptr_t>&& fresh) {
+    std::lock_guard<std::mutex> lock(g_scene_registry_mutex);
+    g_scene_registry.swap(fresh);
+    g_scene_registry_ready = true;
+}
+
+static bool scene_registry_ready() {
+    std::lock_guard<std::mutex> lock(g_scene_registry_mutex);
+    return g_scene_registry_ready;
+}
+
+static bool is_protected_unity_object(int scene_handle, int hide_flags) {
+    return scene_handle == 0 || (hide_flags & (4 | 16 | 32)) != 0;
+}
+
 static std::string scene_json() {
     attach_thread();
-    auto fm = find_objs_method();
-    if (!fm.IsValid()) return "[]";
+    {
+        std::lock_guard<std::mutex> lock(g_scene_cache_mutex);
+        if (!g_scene_cache.empty() && now_seconds() - g_scene_cache_updated < 0.75) {
+            LOGD("[Scene] Cache hit bytes=%zu age=%.3f", g_scene_cache.size(), now_seconds() - g_scene_cache_updated);
+            return g_scene_cache;
+        }
+    }
 
-    Il2CppObject* st = sys_type_of("UnityEngine.GameObject, UnityEngine.CoreModule");
-    if (!st) st = sys_type_of("UnityEngine.GameObject, UnityEngine");
-    if (!st) st = sys_type_of("UnityEngine.GameObject");
-    if (!st) return "[]";
+    Il2CppObject* game_object_type = sys_type_of("UnityEngine.GameObject, UnityEngine.CoreModule");
+    if (!game_object_type) game_object_type = sys_type_of("UnityEngine.GameObject, UnityEngine");
+    if (!game_object_type) game_object_type = sys_type_of("UnityEngine.GameObject");
+    if (!game_object_type) {
+        LOGE("[Scene] Could not resolve System.Type for UnityEngine.GameObject");
+        return "[]";
+    }
 
-    Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine","Object").GetMethod("get_name"));
-    Method<bool> ga(Class("UnityEngine","GameObject").GetMethod("get_activeSelf"));
-    Method<Il2CppObject*> gt(Class("UnityEngine","GameObject").GetMethod("get_transform"));
-    Method<Il2CppObject*> tp(Class("UnityEngine","Transform").GetMethod("get_parent"));
-    Method<Il2CppObject*> cg(Class("UnityEngine","Component").GetMethod("get_gameObject"));
+    MethodBase resources_find_all = find_resources_objects_all_method();
+    Array<Il2CppObject*>* all_objects = nullptr;
+    if (resources_find_all.IsValid() && method_has_pointer(resources_find_all)) {
+        try {
+            all_objects = Method<Array<Il2CppObject*>*>(resources_find_all)(game_object_type);
+            LOGD("[Scene] Resources.FindObjectsOfTypeAll array=%p count=%zu",
+                 all_objects, all_objects && is_valid_pointer(all_objects) ? (size_t)all_objects->capacity : 0);
+        } catch(...) {
+            LOGE("[Scene] Resources.FindObjectsOfTypeAll invocation failed");
+            all_objects = nullptr;
+        }
+    } else {
+        LOGW("[Scene] Resources.FindObjectsOfTypeAll(Type) not resolved");
+    }
 
-    std::ostringstream j;
-    j << "[";
+    bool using_resources = all_objects && is_valid_pointer(all_objects) &&
+                           all_objects->capacity > 0 && all_objects->capacity < 250000;
+    if (!using_resources) {
+        LOGW("[Scene] Resources.FindObjectsOfTypeAll unavailable or empty; falling back to Object.FindObjectsOfType");
+    }
+    if (!using_resources) {
+        all_objects = nullptr;
+        MethodBase find_inactive = find_objs_method_inactive();
+        if (!find_inactive.IsValid() || !method_has_pointer(find_inactive)) find_inactive = find_objs_method();
+        if (find_inactive.IsValid() && method_has_pointer(find_inactive)) {
+            try {
+                auto* info = find_inactive.GetInfo();
+                if (info && info->parameters_count == 2)
+                    all_objects = Method<Array<Il2CppObject*>*>(find_inactive)(game_object_type, true);
+                else
+                    all_objects = Method<Array<Il2CppObject*>*>(find_inactive)(game_object_type);
+            } catch(...) {
+                LOGE("[Scene] FindObjectsOfType fallback invocation failed");
+                all_objects = nullptr;
+            }
+        }
+    }
+
+    Method<BNM::Structures::Mono::String*> get_name(Class("UnityEngine", "Object").GetMethod("get_name", 0));
+    Method<bool> get_active(Class("UnityEngine", "GameObject").GetMethod("get_activeSelf", 0));
+    Method<Il2CppObject*> get_transform(Class("UnityEngine", "GameObject").GetMethod("get_transform", 0));
+    Method<Il2CppObject*> get_parent(Class("UnityEngine", "Transform").GetMethod("get_parent", 0));
+    Method<Il2CppObject*> get_game_object(Class("UnityEngine", "Component").GetMethod("get_gameObject", 0));
+    Method<BNM::UnityEngine::SceneManagement::Scene> get_scene(Class("UnityEngine", "GameObject").GetMethod("get_scene", 0));
+    Method<int> get_hide_flags(Class("UnityEngine", "Object").GetMethod("get_hideFlags", 0));
+
+    std::ostringstream json;
+    json << "[";
+    size_t emitted = 0;
+    size_t excluded = 0;
+    size_t hidden_without_scene = 0;
+    std::unordered_set<uintptr_t> fresh_registry;
     try {
-        auto* arr = Method<Array<Il2CppObject*>*>(fm)(st);
-        if (arr && arr->capacity > 0) {
+        if (all_objects && is_valid_pointer(all_objects) && all_objects->capacity > 0 && all_objects->capacity < 250000) {
             bool first = true;
-            for (int i = 0; i < arr->capacity; i++) {
-                Il2CppObject* go = arr->m_Items[i];
-                if (!go || !is_valid_pointer(go)) continue;
+            for (size_t i = 0; i < (size_t)all_objects->capacity; ++i) {
+                Il2CppObject* go = all_objects->m_Items[i];
+                if (!go || !is_valid_pointer(go) || !go->klass || !is_valid_pointer(go->klass)) continue;
+                if (!il2cpp_class_has_base(go->klass, "UnityEngine", "GameObject")) continue;
+                if (!reinterpret_cast<BNM::UnityEngine::Object*>(go)->IsValid()) continue;
+
+                bool scene_valid = false;
+                int hide_flags = 0;
+                if (method_has_pointer(get_scene)) {
+                    try {
+                        auto scene = get_scene[go]();
+                        scene_valid = scene.m_Handle != 0;
+                    } catch(...) {}
+                }
+                if (method_has_pointer(get_hide_flags)) {
+                    try { hide_flags = get_hide_flags[go](); } catch(...) {}
+                }
+                bool hidden_runtime_object = hide_flags != 0;
                 std::string name = "Unknown";
                 bool active = false;
-                if (gn.IsValid()) { auto* s = gn[go](); if (s) name = s->str(); }
-                if (ga.IsValid()) active = ga[go]();
-                uintptr_t par = 0;
-                if (gt.IsValid() && tp.IsValid() && cg.IsValid()) {
-                    Il2CppObject* tr = gt[go]();
-                    if (tr && is_valid_pointer(tr)) {
-                        Il2CppObject* pt = tp[tr]();
-                        if (pt && is_valid_pointer(pt)) {
-                            Il2CppObject* pg = cg[pt]();
-                            if (pg && is_valid_pointer(pg)) par = (uintptr_t)pg;
+                if (method_has_pointer(get_name)) {
+                    auto* value = get_name[go]();
+                    if (value && is_valid_pointer(value)) name = value->str();
+                }
+                if (method_has_pointer(get_active)) active = get_active[go]();
+
+                bool diagnostic_name = name.find("BloodMoon") != std::string::npos ||
+                                       name.find("Bloodmoon") != std::string::npos ||
+                                       name.find("Beam") != std::string::npos ||
+                                       name.find("OfflineVRRig") != std::string::npos;
+                if (diagnostic_name) {
+                    LOGD("[Scene] Target name=%s addr=%p sceneValid=%d hideFlags=0x%X activeSelf=%d",
+                         name.c_str(), go, scene_valid ? 1 : 0, hide_flags, active ? 1 : 0);
+                }
+                if (!scene_valid && !hidden_runtime_object) {
+                    if (diagnostic_name)
+                        LOGW("[Scene] Target excluded from tree name=%s addr=%p sceneValid=0 hideFlags=0x%X",
+                             name.c_str(), go, hide_flags);
+                    ++excluded;
+                    continue;
+                }
+                if (!scene_valid) ++hidden_without_scene;
+
+                uintptr_t parent_addr = 0;
+                if (method_has_pointer(get_transform) && method_has_pointer(get_parent) && method_has_pointer(get_game_object)) {
+                    Il2CppObject* transform = get_transform[go]();
+                    if (transform && is_valid_pointer(transform)) {
+                        Il2CppObject* parent_transform = get_parent[transform]();
+                        if (parent_transform && is_valid_pointer(parent_transform)) {
+                            Il2CppObject* parent_go = get_game_object[parent_transform]();
+                            if (parent_go && is_valid_pointer(parent_go)) parent_addr = (uintptr_t)parent_go;
                         }
                     }
                 }
-                if (!first) j << ",";
+
+                fresh_registry.insert((uintptr_t)go);
+                if (!first) json << ",";
                 first = false;
-                j << "{\"addr\":\"" << std::hex << (uintptr_t)go << "\",\"name\":\"" << js_esc(name) << "\",\"active\":" << (active?"true":"false") << ",\"parent\":\"" << std::hex << par << "\"}";
+                json << "{\"addr\":\"" << std::hex << (uintptr_t)go
+                     << "\",\"name\":\"" << js_esc(name)
+                     << "\",\"active\":" << (active ? "true" : "false")
+                     << ",\"parent\":\"" << std::hex << parent_addr
+                     << "\",\"hidden\":" << (!scene_valid ? "true" : "false") << "}";
+                ++emitted;
             }
         }
-    } catch(...) {}
-    j << "]";
-    return j.str();
+    } catch(...) {
+        LOGE("[Scene] Failed while serializing GameObjects");
+    }
+    json << "]";
+    std::string result = json.str();
+    scene_registry_publish(std::move(fresh_registry));
+    {
+        std::lock_guard<std::mutex> lock(g_scene_cache_mutex);
+        g_scene_cache = result;
+        g_scene_cache_updated = now_seconds();
+    }
+    LOGD("[Scene] Enumeration source=%s total=%zu emitted=%zu hiddenNoScene=%zu excluded=%zu bytes=%zu",
+         using_resources ? "Resources.FindObjectsOfTypeAll" : "FindObjectsOfType",
+         all_objects ? (size_t)all_objects->capacity : 0, emitted, hidden_without_scene, excluded, result.size());
+    return result;
 }
 
-static std::string read_field(const std::string& ft, Class& cls, Il2CppObject* inst, const std::string& name, MethodBase* getter, bool is_static, bool& ok, const Il2CppType* tp = nullptr) {
+static std::string read_field_raw(const std::string& ft, Class& cls, Il2CppObject* inst, const std::string& name, MethodBase* getter, bool is_static, bool& ok, const Il2CppType* tp = nullptr) {
     ok = false;
     if (!is_static && (!inst || !is_valid_pointer(inst))) return "";
+    if (getter) {
+        auto* info = getter->GetInfo();
+        if (!info || !is_valid_pointer(info) || !info->methodPointer ||
+            !is_valid_pointer((const void*)info->methodPointer)) return "";
+    }
     try {
         if (ft=="System.Single"||ft=="Single"||ft=="float") {
             float v = 0;
@@ -1473,8 +1700,47 @@ static std::string read_field(const std::string& ft, Class& cls, Il2CppObject* i
     return "";
 }
 
+static std::string sanitize_json_numbers(const std::string& in) {
+    std::string out;
+    out.reserve(in.size());
+    bool in_str = false;
+    for (size_t i = 0; i < in.size(); i++) {
+        char c = in[i];
+        if (in_str) {
+            out += c;
+            if (c == '\\' && i + 1 < in.size()) out += in[++i];
+            else if (c == '"') in_str = false;
+            continue;
+        }
+        if (c == '"') {
+            in_str = true;
+            out += c;
+            continue;
+        }
+        if (in.compare(i, 4, "-nan") == 0) { out += '0'; i += 3; continue; }
+        if (in.compare(i, 4, "-inf") == 0) { out += '0'; i += 3; continue; }
+        if (in.compare(i, 3, "nan") == 0) { out += '0'; i += 2; continue; }
+        if (in.compare(i, 3, "inf") == 0) { out += '0'; i += 2; continue; }
+        if (c == ',' && i + 1 < in.size() && in[i + 1] >= '0' && in[i + 1] <= '9' && i > 0 && in[i - 1] >= '0' && in[i - 1] <= '9' && !out.empty() && out.find('.') == std::string::npos && in.find('[') == std::string::npos && in.find('{') == std::string::npos) {
+            out += '.';
+            continue;
+        }
+        out += c;
+    }
+    return out;
+}
+
+static std::string read_field(const std::string& ft, Class& cls, Il2CppObject* inst, const std::string& name, MethodBase* getter, bool is_static, bool& ok, const Il2CppType* tp = nullptr) {
+    return sanitize_json_numbers(read_field_raw(ft, cls, inst, name, getter, is_static, ok, tp));
+}
+
 static void write_field(const std::string& ft, Class& cls, Il2CppObject* inst, const std::string& name, MethodBase* setter, const std::string& v, bool is_static = false) {
     if (!is_static && (!inst || !is_valid_pointer(inst))) return;
+    if (setter) {
+        auto* info = setter->GetInfo();
+        if (!info || !is_valid_pointer(info) || !info->methodPointer ||
+            !is_valid_pointer((const void*)info->methodPointer)) return;
+    }
     try {
         if (ft=="System.Single"||ft=="Single"||ft=="float") {
             float val = std::stof(v);
@@ -1596,11 +1862,113 @@ static void write_field(const std::string& ft, Class& cls, Il2CppObject* inst, c
     } catch(...) {}
 }
 
+static bool prop_read_allowed(const MethodInfo* getter, const std::string& type) {
+    if (!getter || getter->parameters_count != 0 || !getter->methodPointer ||
+        !is_valid_pointer((const void*)getter->methodPointer)) return false;
+    static const char* allowed[] = {
+            "System.Boolean", "System.Int32", "System.Single", "System.Double", "System.Int64", "System.UInt32",
+            "System.UInt64", "System.Int16", "System.UInt16", "System.Byte", "System.SByte", "System.String",
+            "UnityEngine.Vector2", "UnityEngine.Vector3", "UnityEngine.Vector4", "UnityEngine.Quaternion",
+            "UnityEngine.Color", "UnityEngine.Rect", "UnityEngine.LayerMask", nullptr
+    };
+    for (auto** a = allowed; *a; a++)
+        if (type == *a) return true;
+    return false;
+}
+
+static std::mutex g_component_index_mutex;
+static std::unordered_map<uintptr_t, std::vector<Il2CppObject*>> g_component_index;
+static double g_component_index_updated = 0.0;
+
+static void invalidate_component_index() {
+    std::lock_guard<std::mutex> lock(g_component_index_mutex);
+    g_component_index.clear();
+    g_component_index_updated = 0.0;
+}
+
+static bool get_cached_components_for_gameobject(Il2CppObject* go, Il2CppObject* component_type,
+                                                 Class& component_cls, std::vector<Il2CppObject*>& out) {
+    if (!go || !is_valid_pointer(go) || !component_type || !is_valid_pointer(component_type)) return false;
+    double now = now_seconds();
+    {
+        std::lock_guard<std::mutex> lock(g_component_index_mutex);
+        if (g_component_index_updated > 0.0 && now - g_component_index_updated < 8.0) {
+            auto it = g_component_index.find((uintptr_t)go);
+            if (it != g_component_index.end()) {
+                for (auto* component : it->second) {
+                    if (component && is_valid_pointer(component) && is_object_alive(component))
+                        out.push_back(component);
+                }
+            }
+            LOGD("[Inspector] Component index cache hit owner=%p count=%zu age=%.2f",
+                 go, out.size(), now - g_component_index_updated);
+            return true;
+        }
+    }
+
+    MethodBase find_all_method = find_objs_method_inactive();
+    bool includes_inactive = find_all_method.IsValid();
+    if (!includes_inactive) find_all_method = find_objs_method();
+    MethodBase get_game_object_base = component_cls.GetMethod("get_gameObject", 0);
+    auto* get_game_object_info = get_game_object_base.GetInfo();
+    if (!find_all_method.IsValid() || !get_game_object_info || !get_game_object_info->methodPointer ||
+        !is_valid_pointer((const void*)get_game_object_info->methodPointer)) return false;
+    Method<Il2CppObject*> get_component_game_object(get_game_object_base);
+
+    Array<Il2CppObject*>* all_components = nullptr;
+    try {
+        if (includes_inactive)
+            all_components = Method<Array<Il2CppObject*>*>(find_all_method)(component_type, true);
+        else
+            all_components = Method<Array<Il2CppObject*>*>(find_all_method)(component_type);
+    } catch(...) {
+        LOGE("[Inspector] Component index enumeration failed");
+        return false;
+    }
+    if (!all_components || !is_valid_pointer(all_components) || all_components->capacity >= 250000) {
+        LOGE("[Inspector] Component index returned no usable array");
+        return false;
+    }
+
+    std::unordered_map<uintptr_t, std::vector<Il2CppObject*>> fresh;
+    fresh.reserve((size_t)all_components->capacity / 2 + 1);
+    size_t mapped = 0;
+    for (size_t i = 0; i < (size_t)all_components->capacity; ++i) {
+        Il2CppObject* component = all_components->m_Items[i];
+        if (!component || !is_valid_pointer(component)) continue;
+        try {
+            Il2CppObject* owner = get_component_game_object[component]();
+            if (!owner || !is_valid_pointer(owner)) continue;
+            fresh[(uintptr_t)owner].push_back(component);
+            mapped++;
+        } catch(...) {}
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_component_index_mutex);
+        g_component_index.swap(fresh);
+        g_component_index_updated = now_seconds();
+        auto it = g_component_index.find((uintptr_t)go);
+        if (it != g_component_index.end()) {
+            for (auto* component : it->second) {
+                if (component && is_valid_pointer(component) && is_object_alive(component))
+                    out.push_back(component);
+            }
+        }
+        LOGD("[Inspector] Component index refreshed array=%p count=%zu owners=%zu mapped=%zu inactive=%d selected=%zu",
+             all_components, (size_t)all_components->capacity, g_component_index.size(), mapped,
+             includes_inactive ? 1 : 0, out.size());
+    }
+    return true;
+}
+
 static std::string go_info_json(uintptr_t addr) {
     attach_thread();
     if (!addr || !is_valid_pointer((void*)addr)) return "{\"stale\":true}";
     Il2CppObject* go = (Il2CppObject*)addr;
-    if (!is_object_alive(go)) return "{\"stale\":true}";
+    if (!scene_registry_ready()) return "{\"stale\":true}";
+    if (!is_object_alive(go) || !il2cpp_class_has_base(go->klass, "UnityEngine", "GameObject"))
+        return "{\"stale\":true}";
     std::string name = "Unknown";
     bool active = false;
 
@@ -1610,22 +1978,23 @@ static std::string go_info_json(uintptr_t addr) {
     Method<Il2CppObject*> gt(go_cls.GetMethod("get_transform"));
 
     try {
-        if (gn.IsValid()) { auto* s=gn[go](); if(s) name=s->str(); }
-        if (ga.IsValid()) active = ga[go]();
+        if (method_has_pointer(gn)) { auto* s=gn[go](); if(s) name=s->str(); }
+        if (method_has_pointer(ga)) active = ga[go]();
     } catch(...) {}
+    LOGD("[Inspector] Open GameObject name=%s addr=%p activeSelf=%d", name.c_str(), (void*)go, active ? 1 : 0);
 
     std::ostringstream j;
     j << "{\"addr\":\"" << std::hex << addr << "\",\"name\":\"" << js_esc(name) << "\",\"active\":" << (active?"true":"false") << ",\"transform\":{";
     try {
-        if (gt.IsValid()) {
+        if (method_has_pointer(gt)) {
             Il2CppObject* tr = gt[go]();
-            if (tr && is_valid_pointer(tr)) {
+            if (tr && is_valid_pointer(tr) && is_object_alive(tr)) {
                 Method<Vector3> gp(Class("UnityEngine","Transform").GetMethod("get_localPosition"));
                 Method<Vector3> gr(Class("UnityEngine","Transform").GetMethod("get_localEulerAngles"));
                 Method<Vector3> gs(Class("UnityEngine","Transform").GetMethod("get_localScale"));
-                Vector3 p=gp.IsValid()?gp[tr]():Vector3{0,0,0};
-                Vector3 r=gr.IsValid()?gr[tr]():Vector3{0,0,0};
-                Vector3 s=gs.IsValid()?gs[tr]():Vector3{0,0,0};
+                Vector3 p=method_has_pointer(gp)?gp[tr]():Vector3{0,0,0};
+                Vector3 r=method_has_pointer(gr)?gr[tr]():Vector3{0,0,0};
+                Vector3 s=method_has_pointer(gs)?gs[tr]():Vector3{0,0,0};
                 j << "\"addr\":\"" << std::hex << (uintptr_t)tr << "\",\"p\":[" << p.x << "," << p.y << "," << p.z << "],\"r\":[" << r.x << "," << r.y << "," << r.z << "],\"s\":[" << s.x << "," << s.y << "," << s.z << "]";
             }
         }
@@ -1634,74 +2003,104 @@ static std::string go_info_json(uintptr_t addr) {
 
     try {
         Class component_cls("UnityEngine", "Component");
-        Il2CppObject* comp_refl_type = nullptr;
-        if (component_cls.IsValid()) comp_refl_type = (Il2CppObject*)component_cls.GetMonoType();
-        if (!comp_refl_type) comp_refl_type = sys_type_of("UnityEngine.Component, UnityEngine.CoreModule");
-        if (!comp_refl_type) comp_refl_type = sys_type_of("UnityEngine.Component");
-        Array<Il2CppObject*>* comps = nullptr;
-        if (!comps && comp_refl_type) {
-            for (auto& mt : go_cls.GetMethods(true)) {
-                auto* mi = mt.GetInfo();
-                if (!mi || !is_valid_pointer(mi) || !mi->name || !is_valid_pointer(mi->name) || mi->is_generic) continue;
-                if (strcmp(mi->name, "GetComponents") != 0) continue;
-                if (mi->parameters_count == 1) {
-                    try {
-                        Method<Array<Il2CppObject*>*> m(mt);
-                        comps = m[go](comp_refl_type);
-                    } catch(...) {}
-                    if (comps && comps->capacity > 0) break;
-                    comps = nullptr;
-                }
+        auto* component_mono_type = component_cls.IsValid() ? component_cls.GetMonoType() : nullptr;
+        Il2CppObject* component_type = reinterpret_cast<Il2CppObject*>(component_mono_type);
+        if (!component_type) component_type = sys_type_of("UnityEngine.Component, UnityEngine.CoreModule");
+        if (!component_type) component_type = sys_type_of("UnityEngine.Component");
+
+        std::vector<Il2CppObject*> components;
+        Array<Il2CppObject*>* component_array = nullptr;
+        MethodBase public_get_components;
+        for (auto& candidate : go_cls.GetMethods(true)) {
+            auto* info = candidate.GetInfo();
+            if (!info || !is_valid_pointer(info) || !info->name || !is_valid_pointer(info->name) ||
+                strcmp(info->name, "GetComponents") != 0 || info->parameters_count != 1 ||
+                info->is_generic || !method_has_pointer(candidate)) continue;
+            std::string parameter_type = get_param_type_name(info, 0);
+            if (parameter_type == "System.Type" || parameter_type == "Type" ||
+                parameter_type.find("System.Type") != std::string::npos) {
+                public_get_components = candidate;
+                LOGD("[Inspector] Exact GetComponents(Type) found metadata=%p pointer=%p parameter=%s",
+                     info, (void*)info->methodPointer, parameter_type.c_str());
+                break;
             }
         }
-        if (!comps && comp_refl_type) {
+
+        if (public_get_components.IsValid() && component_type) {
+            try {
+                component_array = Method<Array<Il2CppObject*>*>(public_get_components)[go](component_type);
+            } catch(...) {
+                LOGE("[Inspector] GetComponents(Type) invocation threw for GameObject=%p", go);
+            }
+        } else {
+            LOGD("[Inspector] Exact GetComponents(Type) unavailable; trying verified internal overload");
+        }
+
+        if ((!component_array || !is_valid_pointer(component_array) || component_array->capacity == 0) && component_type) {
+            MethodBase internal_get_components;
             for (auto& mt : go_cls.GetMethods(true)) {
                 auto* mi = mt.GetInfo();
                 if (!mi || !is_valid_pointer(mi) || !mi->name || !is_valid_pointer(mi->name)) continue;
-                if (strcmp(mi->name, "GetComponentsInternal") != 0) continue;
-                if (mi->parameters_count >= 2) {
-                    try {
-                        if (mi->parameters_count == 6) {
-                            Method<Array<Il2CppObject*>*> m(mt);
-                            comps = m[go](comp_refl_type, true, false, true, false, nullptr);
-                        } else if (mi->parameters_count == 5) {
-                            Method<Array<Il2CppObject*>*> m(mt);
-                            comps = m[go](comp_refl_type, true, false, true, false);
-                        } else if (mi->parameters_count == 4) {
-                            Method<Array<Il2CppObject*>*> m(mt);
-                            comps = m[go](comp_refl_type, false, true, false);
-                        }
-                    } catch(...) {}
-                    if (comps && comps->capacity > 0) break;
-                    comps = nullptr;
+                if (strcmp(mi->name, "GetComponentsInternal") != 0 || mi->parameters_count != 6) continue;
+                if (!method_has_pointer(mt)) {
+                    LOGD("[Inspector] GetComponentsInternal candidate has no method pointer");
+                    continue;
+                }
+                std::string p0 = get_param_type_name(mi, 0);
+                std::string p1 = get_param_type_name(mi, 1);
+                std::string p2 = get_param_type_name(mi, 2);
+                std::string p3 = get_param_type_name(mi, 3);
+                std::string p4 = get_param_type_name(mi, 4);
+                std::string p5 = get_param_type_name(mi, 5);
+                auto is_bool_type = [](const std::string& value) {
+                    return value == "System.Boolean" || value == "Boolean";
+                };
+                bool signature_ok =
+                        (p0 == "System.Type" || p0 == "Type" || p0.find("System.Type") != std::string::npos) &&
+                        is_bool_type(p1) && is_bool_type(p2) && is_bool_type(p3) && is_bool_type(p4) &&
+                        (p5 == "System.Object" || p5 == "Object" || p5.find("System.Object") != std::string::npos);
+                LOGD("[Inspector] GetComponentsInternal candidate signature=(%s,%s,%s,%s,%s,%s) valid=%d",
+                     p0.c_str(), p1.c_str(), p2.c_str(), p3.c_str(), p4.c_str(), p5.c_str(), signature_ok ? 1 : 0);
+                if (signature_ok) {
+                    internal_get_components = mt;
+                    break;
+                }
+            }
+
+            if (internal_get_components.IsValid()) {
+                try {
+                    component_array = Method<Array<Il2CppObject*>*>(internal_get_components)[go](
+                            component_type, false, false, true, false, nullptr);
+                } catch(...) {
+                    LOGE("[Inspector] GetComponentsInternal invocation failed for GameObject=%p", go);
                 }
             }
         }
-        if (!comps) {
-            Class mono_cls("UnityEngine", "MonoBehaviour");
-            Il2CppObject* mono_type = nullptr;
-            if (mono_cls.IsValid()) mono_type = (Il2CppObject*)mono_cls.GetMonoType();
-            if (!mono_type) mono_type = sys_type_of("UnityEngine.MonoBehaviour, UnityEngine.CoreModule");
-            if (!mono_type) mono_type = sys_type_of("UnityEngine.MonoBehaviour");
 
-            auto fom = find_objs_method();
-            Method<Il2CppObject*> comp_get_go(Class("UnityEngine","Component").GetMethod("get_gameObject"));
+        if (component_array && is_valid_pointer(component_array) && component_array->capacity < 65536) {
+            LOGD("[Inspector] Local component array=%p count=%zu", component_array, (size_t)component_array->capacity);
+            for (size_t i = 0; i < (size_t)component_array->capacity; ++i) {
+                Il2CppObject* component = component_array->m_Items[i];
+                if (!component || !is_valid_pointer(component) || !is_object_alive(component)) continue;
+                if (std::find(components.begin(), components.end(), component) == components.end())
+                    components.push_back(component);
+            }
+        } else {
+            LOGD("[Inspector] Local component retrieval returned %s",
+                 component_array ? "invalid or oversized array" : "null");
+        }
 
-            if (fom.IsValid() && mono_type && comp_get_go.IsValid()) {
-                auto* all_monos = Method<Array<Il2CppObject*>*>(fom)(mono_type);
-                if (all_monos && all_monos->capacity > 0) {
-                    for (int i = 0; i < all_monos->capacity; i++) {
-                        Il2CppObject* c = all_monos->m_Items[i];
-                        if (!c || !is_valid_pointer(c)) continue;
-                        try {
-                            Il2CppObject* cgo = comp_get_go[c]();
-                            if ((uintptr_t)cgo != addr) all_monos->m_Items[i] = nullptr;
-                        } catch(...) { all_monos->m_Items[i] = nullptr; }
-                    }
-                    comps = all_monos;
+        if (components.empty() && component_type) {
+            std::vector<Il2CppObject*> indexed_components;
+            if (get_cached_components_for_gameobject(go, component_type, component_cls, indexed_components)) {
+                for (auto* component : indexed_components) {
+                    if (std::find(components.begin(), components.end(), component) == components.end())
+                        components.push_back(component);
                 }
             }
         }
+
+        LOGD("[Inspector] GameObject=%p final component count=%zu", go, components.size());
 
         static const char* k_stop_at_component[] = {
                 "Component", "Object", nullptr
@@ -1724,92 +2123,80 @@ static std::string go_info_json(uintptr_t addr) {
             return false;
         };
 
-        auto is_known_builtin_base = [](const char* n) -> bool {
-            static const char* builtins[] = {
-                    "MonoBehaviour", "Behaviour",
-                    "Collider", "Collider2D",
-                    "BoxCollider", "SphereCollider", "CapsuleCollider", "MeshCollider", "TerrainCollider", "WheelCollider",
-                    "BoxCollider2D", "CircleCollider2D", "PolygonCollider2D", "EdgeCollider2D", "CapsuleCollider2D", "CompositeCollider2D",
-                    "Rigidbody", "Rigidbody2D",
-                    "Renderer", "MeshRenderer", "SkinnedMeshRenderer", "SpriteRenderer", "LineRenderer", "TrailRenderer", "ParticleSystemRenderer",
-                    "MeshFilter",
-                    "Animator", "Animation",
-                    "AudioSource", "AudioListener",
-                    "Camera", "Light", "LensFlare", "Projector",
-                    "Canvas", "CanvasGroup", "CanvasRenderer",
-                    "RectTransform",
-                    "Text", "Image", "RawImage", "Button", "Toggle", "Slider", "Scrollbar", "Dropdown", "InputField", "ScrollRect", "Mask", "RectMask2D",
-                    "TMP_Text", "TextMeshPro", "TextMeshProUGUI",
-                    "NavMeshAgent", "NavMeshObstacle",
-                    "ParticleSystem",
-                    "Joint", "HingeJoint", "FixedJoint", "SpringJoint", "CharacterJoint", "ConfigurableJoint",
-                    "Joint2D", "HingeJoint2D", "FixedJoint2D", "SpringJoint2D", "WheelJoint2D", "SliderJoint2D",
-                    "CharacterController",
-                    "LODGroup",
-                    "OcclusionArea", "OcclusionPortal",
-                    "NetworkView",
-                    "ConstantForce",
-                    nullptr
-            };
-            for (auto** s = builtins; *s; s++)
-                if (strcmp(n, *s) == 0) return true;
-            return false;
-        };
-
-        if (comps && comps->capacity > 0) {
+        size_t serialized_component_count = 0;
+        size_t skipped_transform_count = 0;
+        size_t invalid_component_count = 0;
+        if (!components.empty()) {
             bool first_script = true;
 
-            for (int i = 0; i < comps->capacity; i++) {
-                Il2CppObject* comp = comps->m_Items[i];
-                if (!comp || !is_valid_pointer(comp) || !comp->klass || !is_valid_pointer(comp->klass)) continue;
+            for (Il2CppObject* comp : components) {
+                if (!comp || !is_valid_pointer(comp) || !comp->klass || !is_valid_pointer(comp->klass)) {
+                    ++invalid_component_count;
+                    continue;
+                }
 
                 auto* klass = comp->klass;
+                LOGD("[Inspector] component candidate=%p class=%s namespace=%s", comp,
+                     klass->name && is_valid_pointer(klass->name) ? klass->name : "<invalid>",
+                     klass->namespaze && is_valid_pointer(klass->namespaze) ? klass->namespaze : "");
+                bool is_component = il2cpp_class_has_base(klass, "UnityEngine", "Component");
+                bool is_mono_behaviour = il2cpp_class_has_base(klass, "UnityEngine", "MonoBehaviour");
+                bool is_transform = klass->name && is_valid_pointer(klass->name) && strcmp(klass->name, "Transform") == 0 &&
+                                    klass->namespaze && is_valid_pointer(klass->namespaze) &&
+                                    strcmp(klass->namespaze, "UnityEngine") == 0;
 
-                bool is_supported = false;
-                std::string comp_category = "script";
-                for (auto* cur = klass; cur && is_valid_pointer(cur); cur = cur->parent) {
-                    if (!cur->name || !is_valid_pointer(cur->name)) continue;
-                    if (strcmp(cur->name, "MonoBehaviour") == 0) { is_supported = true; comp_category = "script"; break; }
-                    if (is_known_builtin_base(cur->name) && strcmp(cur->name, "MonoBehaviour") != 0 && strcmp(cur->name, "Behaviour") != 0) {
-                        is_supported = true; comp_category = "builtin"; break;
-                    }
-                    if (strcmp(cur->name, "Component") == 0 || strcmp(cur->name, "Object") == 0) break;
+                if (!is_component) {
+                    LOGW("[Inspector] Component[] item does not expose Component base; retaining item=%p class=%s namespace=%s",
+                         comp,
+                         klass->name && is_valid_pointer(klass->name) ? klass->name : "<invalid>",
+                         klass->namespaze && is_valid_pointer(klass->namespaze) ? klass->namespaze : "");
                 }
-                if (!is_supported) continue;
+                if (is_transform) {
+                    ++skipped_transform_count;
+                    continue;
+                }
 
+                std::string comp_category = is_mono_behaviour ? "script" : "builtin";
                 std::string comp_name = (klass->name && is_valid_pointer(klass->name)) ? klass->name : "Unknown";
                 std::string comp_ns = (klass->namespaze && is_valid_pointer(klass->namespaze)) ? klass->namespaze : "";
                 char comp_addr[32]; snprintf(comp_addr, sizeof(comp_addr), "%llX", (unsigned long long)(uintptr_t)comp);
                 std::string comp_asm = (klass->image && is_valid_pointer(klass->image) && klass->image->name && is_valid_pointer(klass->image->name)) ? klass->image->name : "";
 
                 bool has_enabled_prop = false;
-                bool enabled = false;
-                for (auto* cur = klass; cur && is_valid_pointer(cur); cur = cur->parent) {
-                    if (!cur->name || !is_valid_pointer(cur->name)) continue;
-                    if (strcmp(cur->name, "Behaviour") == 0 || strcmp(cur->name, "Renderer") == 0 ||
-                        strcmp(cur->name, "Collider") == 0 || strcmp(cur->name, "Collider2D") == 0) {
-                        has_enabled_prop = true; break;
-                    }
-                    if (strcmp(cur->name, "Component") == 0) break;
-                }
-                if (has_enabled_prop) {
-                    Method<bool> get_enabled(Class("UnityEngine","Behaviour").GetMethod("get_enabled"));
-                    if (!get_enabled.IsValid()) {
-                        Class comp_cls_check(klass);
-                        auto ep = comp_cls_check.GetProperty("enabled");
-                        if (ep.IsValid() && ep._data && ep._data->get) {
-                            MethodBase egetter(ep._data->get);
-                            Method<bool> m(egetter); m.SetInstance(comp);
-                            try { enabled = m(); } catch(...) {}
+                bool enabled = true;
+                MethodBase enabled_getter;
+                for (auto* cur = klass; cur && is_valid_pointer(cur) && !enabled_getter.IsValid(); cur = cur->parent) {
+                    try {
+                        Class current_class(cur);
+                        for (auto& property : current_class.GetProperties(false)) {
+                            auto* property_info = property._data;
+                            if (!property_info || !is_valid_pointer(property_info) || !property_info->name ||
+                                !is_valid_pointer(property_info->name) || strcmp(property_info->name, "enabled") != 0 ||
+                                !property_info->get || !is_valid_pointer(property_info->get) ||
+                                property_info->get->parameters_count != 0)
+                                continue;
+                            std::string return_type = type_name(property_info->get->return_type);
+                            if (return_type != "System.Boolean" && return_type != "Boolean") continue;
+                            enabled_getter = MethodBase(property_info->get);
+                            break;
                         }
-                    } else {
-                        try { enabled = get_enabled[comp](); } catch(...) {}
+                    } catch(...) {}
+                }
+
+                if (enabled_getter.IsValid() && method_has_pointer(enabled_getter) && !enabled_getter._isStatic) {
+                    has_enabled_prop = true;
+                    try {
+                        Method<bool> get_enabled(enabled_getter);
+                        get_enabled.SetInstance(comp);
+                        enabled = get_enabled();
+                    } catch(...) {
+                        LOGD("[Inspector] Could not read enabled property for component=%p", comp);
                     }
                 }
 
                 if (!first_script) j << ",";
                 first_script = false;
-                j << "{\"addr\":\"" << comp_addr << "\",\"name\":\"" << js_esc(comp_name) << "\",\"ns\":\"" << js_esc(comp_ns) << "\",\"asm\":\"" << js_esc(comp_asm) << "\",\"category\":\"" << comp_category << "\",\"enabled\":" << (enabled?"true":"false") << ",\"fields\":[";
+                j << "{\"addr\":\"" << comp_addr << "\",\"name\":\"" << js_esc(comp_name) << "\",\"ns\":\"" << js_esc(comp_ns) << "\",\"asm\":\"" << js_esc(comp_asm) << "\",\"category\":\"" << comp_category << "\",\"enabled\":" << (enabled?"true":"false") << ",\"hasEnabled\":" << (has_enabled_prop?"true":"false") << ",\"fields\":[";
 
                 try {
                     Class comp_cls(klass);
@@ -1826,7 +2213,7 @@ static std::string go_info_json(uintptr_t addr) {
                                 auto* fi = f.GetInfo();
                                 if (!fi || !is_valid_pointer(fi) || !fi->type || !is_valid_pointer(fi->type) || (fi->type->attrs & 0x10)) continue;
                                 std::string fn = fi->name;
-                                bool dup = false; for (auto& s : seen) if (s==fn) dup=true;
+                                bool dup = false; for (auto& seen_name : seen) if (seen_name==fn) dup=true;
                                 if (dup) continue; seen.push_back(fn);
                                 std::string ft = type_name(fi->type);
                                 bool ok = false;
@@ -1838,18 +2225,21 @@ static std::string go_info_json(uintptr_t addr) {
                             } catch(...) {}
                         }
 
-                        for (auto& p : cur.GetProperties(false)) {
+                        for (auto& property : cur.GetProperties(false)) {
                             try {
-                                auto* pi = p._data;
+                                auto* pi = property._data;
                                 if (!pi || !is_valid_pointer(pi) || !pi->get) continue;
                                 std::string pn = pi->name;
                                 if (is_skip_prop(pn.c_str())) continue;
-                                bool dup = false; for (auto& s : seen) if (s==pn) dup=true;
+                                if (pn == "Item" || pn == "Chars") continue;
+                                bool dup = false; for (auto& seen_name : seen) if (seen_name==pn) dup=true;
                                 if (dup) continue; seen.push_back(pn);
                                 std::string pt = (pi->get->return_type && is_valid_pointer(pi->get->return_type)) ? type_name(pi->get->return_type) : "?";
+                                if (!prop_read_allowed(pi->get, pt)) continue;
                                 bool ok = false;
                                 MethodBase getter(pi->get);
-                                std::string vs = read_field(pt, cur, comp, pn, &getter, false, ok, pi->get->return_type);
+                                bool getter_static = getter._isStatic;
+                                std::string vs = read_field(pt, cur, getter_static ? nullptr : comp, pn, &getter, getter_static, ok, pi->get->return_type);
                                 if (ok) {
                                     if (!first_f) j << ","; first_f = false;
                                     j << "{\"name\":\"" << js_esc(pn) << "\",\"type\":\"" << js_esc(pt) << "\",\"val\":" << vs << ",\"isProp\":true,\"canWrite\":" << (pi->set?"true":"false") << "}";
@@ -1859,11 +2249,19 @@ static std::string go_info_json(uintptr_t addr) {
                     }
                 } catch(...) {}
                 j << "]}";
+                ++serialized_component_count;
             }
         }
-    } catch(...) {}
+        LOGD("[Inspector] Serialization summary GameObject=%p candidates=%zu serialized=%zu transforms=%zu invalid=%zu",
+             go, components.size(), serialized_component_count, skipped_transform_count, invalid_component_count);
+    } catch(...) {
+        LOGE("[Inspector] Unexpected failure while building component list for GameObject=%p", go);
+    }
     j << "]}";
-    return j.str();
+    std::string result = j.str();
+    result = sanitize_json_numbers(result);
+    LOGD("[Inspector] JSON ready GameObject=%p bytes=%zu", go, result.size());
+    return result;
 }
 
 static void apply_loop_entry(const std::shared_ptr<loop_entry>& e) {
@@ -1948,6 +2346,11 @@ static CatcherHookFn g_catcher_hook_fns[MAX_CATCHERS] = {
         catcher_hook<60>,catcher_hook<61>,catcher_hook<62>,catcher_hook<63>
 };
 
+#include "explorer/main_thread.hpp"
+#include "explorer/scene_dump.hpp"
+#include "explorer/calls.hpp"
+#include "explorer/freeze.hpp"
+
 static void start_server() {
     httplib::Server svr;
 
@@ -1994,12 +2397,28 @@ static void start_server() {
     });
 
     svr.Get("/api/scene",[](const httplib::Request&, httplib::Response& res) {
-        res.set_content(scene_json(), "application/json");
+        if (!mt_on_main_thread() && !mt_install()) {
+            res.status = 503;
+            res.set_content("{\"error\":\"main thread dispatcher unavailable\"}", "application/json");
+            return;
+        }
+        std::string out;
+        if (!mt_call_string([]() { return scene_json(); }, out, 10000)) out = "{\"error\":\"timeout\"}";
+        res.set_content(out, "application/json");
     });
 
     svr.Get("/api/scene/inspect",[](const httplib::Request& req, httplib::Response& res) {
         auto s = req.get_param_value("addr");
-        res.set_content(s.empty() ? "{}" : go_info_json((uintptr_t)strtoull(s.c_str(), nullptr, 16)), "application/json");
+        if (s.empty()) { res.set_content("{}", "application/json"); return; }
+        if (!mt_on_main_thread() && !mt_install()) {
+            res.status = 503;
+            res.set_content("{\"error\":\"main thread dispatcher unavailable\"}", "application/json");
+            return;
+        }
+        uintptr_t ga = (uintptr_t)strtoull(s.c_str(), nullptr, 16);
+        std::string out;
+        if (!mt_call_string([ga]() { return go_info_json(ga); }, out, 10000)) out = "{\"error\":\"timeout\"}";
+        res.set_content(out, "application/json");
     });
 
     svr.Get("/api/controller/inspect",[](const httplib::Request& req, httplib::Response& res) {
@@ -2172,7 +2591,7 @@ static void start_server() {
                     Il2CppObject* obj = resolve_component_by_addr(addr);
                     if (!obj) { res.set_content("{\"ok\":false,\"error\":\"stale address\"}", "application/json"); return; }
                     Class start_cls = (obj->klass) ? Class(obj->klass) :
-                                     Class(comp_ns.c_str(), comp_cls.c_str(), comp_asm.empty() ? Image() : Image(comp_asm.c_str()));
+                                      Class(comp_ns.c_str(), comp_cls.c_str(), comp_asm.empty() ? Image() : Image(comp_asm.c_str()));
                     for (Class cur = start_cls; cur.IsValid(); cur = cur.GetParent()) {
                         if (is_prop) {
                             auto p = cur.GetProperty(name.c_str());
@@ -2213,16 +2632,113 @@ static void start_server() {
     });
 
     svr.Post("/api/scene/delete",[](const httplib::Request& req, httplib::Response& res) {
-        attach_thread();
-        auto s = json_val(req.body, "addr");
-        if (!s.empty()) {
-            uintptr_t addr = (uintptr_t)strtoull(s.c_str(), nullptr, 16);
-            Il2CppObject* obj = resolve_component_by_addr(addr);
-            if (obj) {
-                try { Method<void> m(Class("UnityEngine","Object").GetMethod("Destroy",1)); if(m.IsValid()) m(obj); } catch(...) {}
-            }
+        uintptr_t addr = (uintptr_t)strtoull(json_val(req.body, "addr").c_str(), nullptr, 16);
+        LOGD("[Scene] Delete request addr=%p", (void*)addr);
+        if (!addr) { res.status = 400; res.set_content("{\"ok\":false,\"error\":\"missing address\"}", "application/json"); return; }
+        if (!mt_on_main_thread() && !mt_install()) {
+            res.status = 503;
+            res.set_content("{\"ok\":false,\"error\":\"main thread dispatcher unavailable\"}", "application/json");
+            return;
         }
-        res.set_content("{\"ok\":true}", "application/json");
+        std::string out;
+        bool completed = mt_call_string([addr]() {
+            attach_thread();
+            Il2CppObject* obj = resolve_component_by_addr(addr);
+            if (!obj || !il2cpp_class_has_base(obj->klass, "UnityEngine", "GameObject")) {
+                LOGE("[Scene] Delete rejected addr=%p: invalid GameObject", (void*)addr);
+                return std::string("{\"ok\":false,\"error\":\"invalid GameObject\"}");
+            }
+            auto* unity_object = reinterpret_cast<BNM::UnityEngine::Object*>(obj);
+            if (!unity_object->IsValid()) {
+                LOGE("[Scene] Delete rejected addr=%p: Unity object is not alive", (void*)addr);
+                return std::string("{\"ok\":false,\"error\":\"GameObject is no longer valid\"}");
+            }
+            if (!scene_registry_ready()) {
+                return std::string("{\"ok\":false,\"error\":\"scene is refreshing, try again\"}");
+            }
+            std::string target_name = "Unknown";
+            std::string target_path;
+            int target_instance_id = 0;
+            bool target_active_self = false;
+            bool target_active_hierarchy = false;
+            int target_scene_handle = 0;
+            int target_hide_flags = 0;
+            try {
+                Class object_cls("UnityEngine", "Object");
+                Class game_object_cls("UnityEngine", "GameObject");
+                Class transform_cls("UnityEngine", "Transform");
+                Method<BNM::Structures::Mono::String*> get_name(object_cls.GetMethod("get_name", 0));
+                Method<int> get_instance_id(object_cls.GetMethod("GetInstanceID", 0));
+                Method<bool> get_active_self(game_object_cls.GetMethod("get_activeSelf", 0));
+                Method<bool> get_active_hierarchy(game_object_cls.GetMethod("get_activeInHierarchy", 0));
+                Method<int> get_flags(object_cls.GetMethod("get_hideFlags", 0));
+                Method<BNM::UnityEngine::SceneManagement::Scene> get_scene(game_object_cls.GetMethod("get_scene", 0));
+                Method<Il2CppObject*> get_transform(game_object_cls.GetMethod("get_transform", 0));
+                Method<Il2CppObject*> get_parent(transform_cls.GetMethod("get_parent", 0));
+                if (method_has_pointer(get_name)) {
+                    auto* value = get_name[obj]();
+                    if (value && is_valid_pointer(value)) target_name = value->str();
+                }
+                if (method_has_pointer(get_instance_id)) target_instance_id = get_instance_id[obj]();
+                if (method_has_pointer(get_active_self)) target_active_self = get_active_self[obj]();
+                if (method_has_pointer(get_active_hierarchy)) target_active_hierarchy = get_active_hierarchy[obj]();
+                if (method_has_pointer(get_flags)) target_hide_flags = get_flags[obj]();
+                if (method_has_pointer(get_scene)) target_scene_handle = get_scene[obj]().m_Handle;
+                if (method_has_pointer(get_transform) && method_has_pointer(get_parent)) {
+                    Il2CppObject* tr = get_transform[obj]();
+                    std::vector<std::string> path_parts;
+                    for (int depth = 0; tr && is_valid_pointer(tr) && depth < 32; ++depth) {
+                        std::string part = "?";
+                        if (method_has_pointer(get_name)) {
+                            auto* value = get_name[tr]();
+                            if (value && is_valid_pointer(value)) part = value->str();
+                        }
+                        path_parts.push_back(part);
+                        tr = get_parent[tr]();
+                    }
+                    for (auto it = path_parts.rbegin(); it != path_parts.rend(); ++it) {
+                        if (!target_path.empty()) target_path += "/";
+                        target_path += *it;
+                    }
+                }
+            } catch(...) {
+                LOGW("[Scene] Delete target metadata collection failed addr=%p", obj);
+            }
+            LOGD("[Scene] Delete target name=%s path=%s addr=%p instanceId=%d activeSelf=%d activeHierarchy=%d sceneHandle=%d hideFlags=0x%X",
+                 target_name.c_str(), target_path.c_str(), obj, target_instance_id,
+                 target_active_self ? 1 : 0, target_active_hierarchy ? 1 : 0,
+                 target_scene_handle, target_hide_flags);
+
+            if (is_protected_unity_object(target_scene_handle, target_hide_flags)) {
+                LOGW("[Scene] Delete rejected addr=%p: engine owned object sceneHandle=%d hideFlags=0x%X",
+                     (void*)addr, target_scene_handle, target_hide_flags);
+                return std::string("{\"ok\":false,\"error\":\"engine owned object cannot be deleted\"}");
+            }
+            MethodBase destroy_base = find_destroy_object_method();
+            if (!destroy_base.IsValid() || !method_has_pointer(destroy_base)) {
+                LOGE("[Scene] Delete rejected addr=%p: exact Object.Destroy(Object) method unavailable", (void*)addr);
+                return std::string("{\"ok\":false,\"error\":\"Object.Destroy(Object) unavailable\"}");
+            }
+            auto* destroy_info = destroy_base.GetInfo();
+            LOGD("[Scene] Destroy call target=%p methodInfo=%p methodPointer=%p parameter=%s",
+                 obj, destroy_info, destroy_info ? (void*)destroy_info->methodPointer : nullptr,
+                 destroy_info ? get_param_type_name(destroy_info, 0).c_str() : "?");
+            try {
+                freeze_bypass_guard bypass;
+                Method<void> destroy(destroy_base);
+                destroy(obj);
+                invalidate_component_index();
+                invalidate_scene_cache();
+                scene_registry_invalidate();
+                LOGD("[Scene] Destroy scheduled GameObject=%p", obj);
+                return std::string("{\"ok\":true,\"scheduled\":true}");
+            } catch(...) {
+                LOGE("[Scene] Destroy failed for GameObject=%p", obj);
+                return std::string("{\"ok\":false,\"error\":\"Object.Destroy invocation failed\"}");
+            }
+        }, out, 5000);
+        if (!completed) { res.status = 504; out = "{\"ok\":false,\"error\":\"main thread operation timed out\"}"; }
+        res.set_content(out, "application/json");
     });
 
     svr.Post("/api/invoke",[](const httplib::Request& req, httplib::Response& res) {
@@ -2336,19 +2852,40 @@ static void start_server() {
     });
 
     svr.Post("/api/scene/destroy",[](const httplib::Request& req, httplib::Response& res) {
-        attach_thread();
-        auto s = json_val(req.body, "addr");
-        if (!s.empty()) {
-            uintptr_t addr = (uintptr_t)strtoull(s.c_str(), nullptr, 16);
-            Il2CppObject* obj = resolve_component_by_addr(addr);
-            if (obj) {
-                try {
-                    Method<void> m(Class("UnityEngine","Object").GetMethod("Destroy",1));
-                    if (m.IsValid()) m(obj);
-                } catch(...) {}
-            }
+        uintptr_t addr = (uintptr_t)strtoull(json_val(req.body, "addr").c_str(), nullptr, 16);
+        if (!addr) { res.status = 400; res.set_content("{\"ok\":false,\"error\":\"missing address\"}", "application/json"); return; }
+        if (!mt_on_main_thread() && !mt_install()) {
+            res.status = 503;
+            res.set_content("{\"ok\":false,\"error\":\"main thread dispatcher unavailable\"}", "application/json");
+            return;
         }
-        res.set_content("{\"ok\":true}", "application/json");
+        std::string out;
+        bool completed = mt_call_string([addr]() {
+            attach_thread();
+            Il2CppObject* obj = resolve_component_by_addr(addr);
+            if (!obj || !is_unity_object_instance(obj))
+                return std::string("{\"ok\":false,\"error\":\"invalid Unity object\"}");
+            auto* unity_object = reinterpret_cast<BNM::UnityEngine::Object*>(obj);
+            if (!unity_object->IsValid()) return std::string("{\"ok\":false,\"error\":\"Unity object is no longer valid\"}");
+            MethodBase destroy_base = Class("UnityEngine", "Object").GetMethod("Destroy", 1);
+            auto* destroy_info = destroy_base.GetInfo();
+            if (!destroy_info || !destroy_info->methodPointer || !is_valid_pointer((const void*)destroy_info->methodPointer))
+                return std::string("{\"ok\":false,\"error\":\"Object.Destroy method unavailable\"}");
+            try {
+                freeze_bypass_guard bypass;
+                Method<void> destroy(destroy_base);
+                destroy(obj);
+                invalidate_component_index();
+                invalidate_scene_cache();
+                LOGD("[Scene] Destroy scheduled UnityObject=%p", obj);
+                return std::string("{\"ok\":true,\"scheduled\":true}");
+            } catch(...) {
+                LOGE("[Scene] Destroy failed for UnityObject=%p", obj);
+                return std::string("{\"ok\":false,\"error\":\"Object.Destroy invocation failed\"}");
+            }
+        }, out, 5000);
+        if (!completed) { res.status = 504; out = "{\"ok\":false,\"error\":\"main thread operation timed out\"}"; }
+        res.set_content(out, "application/json");
     });
 
     svr.Post("/api/scene/create",[](const httplib::Request& req, httplib::Response& res) {
@@ -2408,16 +2945,51 @@ static void start_server() {
     });
 
     svr.Post("/api/scene/removecomponent",[](const httplib::Request& req, httplib::Response& res) {
-        attach_thread();
         uintptr_t addr = (uintptr_t)strtoull(json_val(req.body, "addr").c_str(), nullptr, 16);
-        if (!addr || !is_valid_pointer((void*)addr)) { res.set_content("{\"ok\":false}", "application/json"); return; }
-        Il2CppObject* obj = resolve_component_by_addr(addr);
-        if (!obj) { res.set_content("{\"ok\":false,\"error\":\"stale address\"}", "application/json"); return; }
-        try {
-            Method<void> destroy(Class("UnityEngine","Object").GetMethod("Destroy",1));
-            if (destroy.IsValid()) destroy(obj);
-        } catch(...) {}
-        res.set_content("{\"ok\":true}", "application/json");
+        LOGD("[Scene] Remove component request addr=%p", (void*)addr);
+        if (!addr) { res.status = 400; res.set_content("{\"ok\":false,\"error\":\"missing address\"}", "application/json"); return; }
+        if (!mt_on_main_thread() && !mt_install()) {
+            res.status = 503;
+            res.set_content("{\"ok\":false,\"error\":\"main thread dispatcher unavailable\"}", "application/json");
+            return;
+        }
+        std::string out;
+        bool completed = mt_call_string([addr]() {
+            attach_thread();
+            Il2CppObject* obj = resolve_component_by_addr(addr);
+            if (!obj || !il2cpp_class_has_base(obj->klass, "UnityEngine", "Component")) {
+                LOGE("[Scene] Remove component rejected addr=%p: invalid Component", (void*)addr);
+                return std::string("{\"ok\":false,\"error\":\"invalid Component\"}");
+            }
+            if (il2cpp_class_has_base(obj->klass, "UnityEngine", "Transform")) {
+                LOGE("[Scene] Remove component rejected addr=%p: Transform is mandatory", (void*)addr);
+                return std::string("{\"ok\":false,\"error\":\"Transform cannot be removed separately\"}");
+            }
+            auto* unity_object = reinterpret_cast<BNM::UnityEngine::Object*>(obj);
+            if (!unity_object->IsValid()) {
+                LOGE("[Scene] Remove component rejected addr=%p: Unity object is not alive", (void*)addr);
+                return std::string("{\"ok\":false,\"error\":\"Component is no longer valid\"}");
+            }
+            MethodBase destroy_base = find_destroy_object_method();
+            if (!destroy_base.IsValid() || !method_has_pointer(destroy_base)) {
+                LOGE("[Scene] Remove component rejected addr=%p: exact Object.Destroy(Object) unavailable", (void*)addr);
+                return std::string("{\"ok\":false,\"error\":\"Object.Destroy(Object) unavailable\"}");
+            }
+            try {
+                freeze_bypass_guard bypass;
+                Method<void> destroy(destroy_base);
+                destroy(obj);
+                invalidate_component_index();
+                LOGD("[Scene] Destroy scheduled Component=%p class=%s", obj,
+                     obj->klass->name && is_valid_pointer(obj->klass->name) ? obj->klass->name : "<invalid>");
+                return std::string("{\"ok\":true,\"scheduled\":true}");
+            } catch(...) {
+                LOGE("[Scene] Destroy failed for Component=%p", obj);
+                return std::string("{\"ok\":false,\"error\":\"Object.Destroy invocation failed\"}");
+            }
+        }, out, 5000);
+        if (!completed) { res.status = 504; out = "{\"ok\":false,\"error\":\"main thread operation timed out\"}"; }
+        res.set_content(out, "application/json");
     });
 
     svr.Get("/api/dump",[](const httplib::Request&, httplib::Response& res) {
@@ -2689,6 +3261,9 @@ static void start_server() {
         res.set_content(j.str(), "application/json");
     });
 
+    register_dump_routes(svr);
+    register_calls_routes(svr);
+    register_freeze_routes(svr);
     register_workspace_routes(svr);
 
     svr.listen("0.0.0.0", g_port);

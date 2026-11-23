@@ -4,6 +4,7 @@
 #include "lua_scene.hpp"
 #include "lua_xr.hpp"
 #include "lua_runtime.hpp"
+#include "lua_hooks.hpp"
 #include "lua_modules.hpp"
 
 static const char* lua_prelude_source = R"lua(
@@ -161,6 +162,7 @@ static void luabnm_openlibs(lua_State* L) {
     register_function(L, "get_time", l_get_time);
     register_function(L, "set_tick_hook", l_set_tick_hook);
     register_function(L, "has_tick_hook", l_has_tick_hook);
+    register_lua_hooks(L);
 
     lua_newtable(L);
     lua_pushcfunction(L, l_scene_get_objects);
