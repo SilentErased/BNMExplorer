@@ -1,3 +1,4 @@
+#include <cmath>
 #include <BNM/UserSettings/GlobalSettings.hpp>
 #include <BNM/UnityStructures.hpp>
 #include "BNM/UnityStructures/Color.hpp"

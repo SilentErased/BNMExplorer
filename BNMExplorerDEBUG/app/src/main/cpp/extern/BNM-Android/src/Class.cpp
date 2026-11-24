@@ -457,6 +457,7 @@ Class Class::GetListClass() {
     return Internal::vmData.System$$List;
 }
 
+namespace BNM {
 namespace CompileTimeClassProcessors {
     typedef void (*ProcessorType)(CompileTimeClass &target, CompileTimeClass::_BaseInfo *info);
 
@@ -547,6 +548,7 @@ namespace CompileTimeClassProcessors {
             ProcessModifierInfo,
             ProcessGenericInfo,
     };
+}
 }
 
 Class CompileTimeClass::ToClass() {

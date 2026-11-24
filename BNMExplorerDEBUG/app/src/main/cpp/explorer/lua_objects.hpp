@@ -2,6 +2,12 @@
 #include <vector>
 #include "lua_values.hpp"
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 struct lua_ref {
     Il2CppClass* klass;
     uintptr_t inst;
@@ -171,7 +177,7 @@ static MethodInfo* choose_overload(lua_State* L, const std::vector<MethodInfo*>&
         for (auto* mi : candidates) {
             bool ok = true;
             for (int i = 0; i < argc && ok; i++)
-                ok = lua_matches_kind(L, first + i, kind_from_type(mi->parameters[i]), pass == 0);
+                ok = lua_matches_kind(L, first + i, kind_from_type(bnm_method_parameter_type(mi, static_cast<uint32_t>(i))), pass == 0);
             if (ok) return mi;
         }
     }
@@ -250,7 +256,7 @@ static int invoke_method_info(lua_State* L, MethodInfo* mi, Il2CppObject* inst, 
     value_slot slots[max_call_args];
     void* args[max_call_args];
     for (int i = 0; i < argc; i++) {
-        value_kind k = kind_from_type(mi->parameters[i]);
+        value_kind k = kind_from_type(bnm_method_parameter_type(mi, static_cast<uint32_t>(i)));
         args[i] = lua_to_arg(L, first + i, k, slots[i]);
     }
     Il2CppException* exc = nullptr;
@@ -433,7 +439,7 @@ static int component_call(lua_State* L, const lua_ref* r, const char* method_nam
     const auto& cand = find_candidates(r->klass, method_name, 1);
     MethodInfo* chosen = nullptr;
     for (auto* mi : cand) {
-        if (type_full_name(mi->parameters[0]) == "System.Type") {
+        if (type_full_name(bnm_method_parameter_type(mi, 0)) == "System.Type") {
             chosen = mi;
             break;
         }
@@ -750,3 +756,8 @@ static int l_method_tostring(lua_State* L) {
     lua_pushstring(L, buf);
     return 1;
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

@@ -14,6 +14,12 @@
 #include <unistd.h>
 #include <zlib.h>
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 struct ws_entry {
     std::string path;
     bool is_dir;
@@ -597,3 +603,8 @@ static void ws_init() {
     if (fresh) ws_seed_defaults();
     g_ws_ready = true;
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

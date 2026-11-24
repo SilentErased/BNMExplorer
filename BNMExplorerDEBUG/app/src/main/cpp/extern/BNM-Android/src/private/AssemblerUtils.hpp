@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <BNM/UserSettings/GlobalSettings.hpp>
 
 namespace BNM::AssemblerUtils {
@@ -56,10 +57,18 @@ namespace BNM::AssemblerUtils {
 
     static inline bool DecodeBranchOrCall(uint32_t insn, BNM_PTR pc, BNM_PTR &outTarget) {
         if (!IsBranch(insn)) return false;
-        // imm26 is sign-extended and shifted left by 2 bits.
-        int32_t imm26 = (int32_t)(insn & 0x03FFFFFF);
-        int64_t offset = (int64_t)((imm26 << 6) >> 4); // Sign-extend 26-bit to 64-bit and multiply by 4
-        outTarget = (BNM_PTR)((int64_t)pc + offset);
+        int64_t imm26 = static_cast<int64_t>(insn & 0x03FFFFFFU);
+        if ((imm26 & 0x02000000LL) != 0) imm26 -= 0x04000000LL;
+        const int64_t offset = imm26 * 4LL;
+        if (offset >= 0) {
+            const BNM_PTR amount = static_cast<BNM_PTR>(offset);
+            if (pc > std::numeric_limits<BNM_PTR>::max() - amount) return false;
+            outTarget = pc + amount;
+        } else {
+            const BNM_PTR amount = static_cast<BNM_PTR>(-(offset + 1LL)) + 1UL;
+            if (pc < amount) return false;
+            outTarget = pc - amount;
+        }
         return true;
     }
 

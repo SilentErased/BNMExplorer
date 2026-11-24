@@ -56,12 +56,21 @@ void Loading::AllowLateInitHook() {
 
 static bool CheckHandle(void *handle) {
     if (!handle) return false;
-    void *init = BNM_dlsym(handle, BNM_OBFUSCATE_TMP(BNM_IL2CPP_API_il2cpp_init));
-    if (!init) return false;
+    void *previous_handle = Internal::il2cppLibraryHandle;
+    Internal::il2cppLibraryHandle = handle;
+    void *init = Internal::currentFinderMethod(BNM_OBFUSCATE_TMP(BNM_IL2CPP_API_il2cpp_init), Internal::currentFinderData);
+    if (!init) {
+        Internal::il2cppLibraryHandle = previous_handle;
+        return false;
+    }
 
     Internal::BNM_il2cpp_init_origin = ::BasicHook(init, Internal::BNM_il2cpp_init, Internal::old_BNM_il2cpp_init);
+    if (!Internal::BNM_il2cpp_init_origin) {
+        Internal::il2cppLibraryHandle = previous_handle;
+        return false;
+    }
 
-    if (Internal::states.lateInitAllowed) Internal::LateInit(BNM_dlsym(handle, BNM_OBFUSCATE_TMP(BNM_IL2CPP_API_il2cpp_class_from_il2cpp_type)));
+    if (Internal::states.lateInitAllowed) Internal::LateInit(Internal::currentFinderMethod(BNM_OBFUSCATE_TMP(BNM_IL2CPP_API_il2cpp_class_from_il2cpp_type), Internal::currentFinderData));
 
     Internal::il2cppLibraryHandle = handle;
     return true;
@@ -157,6 +166,7 @@ bool Loading::TryLoadByUsersFinder() {
     if (!init) return false;
 
     Internal::BNM_il2cpp_init_origin = ::BasicHook(init, Internal::BNM_il2cpp_init, Internal::old_BNM_il2cpp_init);
+    if (!Internal::BNM_il2cpp_init_origin) return false;
 
     if (Internal::states.lateInitAllowed) Internal::LateInit(Internal::currentFinderMethod(BNM_OBFUSCATE_TMP(BNM_IL2CPP_API_il2cpp_class_from_il2cpp_type), Internal::currentFinderData));
 
@@ -182,8 +192,13 @@ void Internal::LateInit(void *il2cpp_class_from_il2cpp_type_addr) {
     // il2cpp_class_from_il2cpp_type ->
     // il2cpp::vm::Class::FromIl2CppType
     auto from_il2cpp_type = AssemblerUtils::FindNextJump((BNM_PTR) il2cpp_class_from_il2cpp_type_addr, count);
+    if (!from_il2cpp_type) {
+        BNM_LOG_ERR("Late initialization hook target could not be resolved.");
+        return;
+    }
 
     Internal::BNM_Class$$FromIl2CppType_origin = ::BasicHook(from_il2cpp_type, Internal::BNM_Class$$FromIl2CppType, Internal::old_BNM_Class$$FromIl2CppType);
+    if (!Internal::BNM_Class$$FromIl2CppType_origin) BNM_LOG_ERR("Late initialization hook installation failed.");
 }
 
 static void EmptyMethod() {}

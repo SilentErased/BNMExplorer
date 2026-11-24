@@ -129,9 +129,11 @@ static void LogCompileTimeClassInfo(CompileTimeClass::_BaseInfo *info, const Com
     }
 }
 
+namespace BNM {
 namespace CompileTimeClassProcessors {
     typedef void (*ProcessorType)(CompileTimeClass &target, CompileTimeClass::_BaseInfo *info);
     extern ProcessorType processors[(uint8_t) CompileTimeClass::_BaseType::MaxCount];
+}
 }
 
 void Utils::LogCompileTimeClass(const CompileTimeClass &compileTimeClass) {

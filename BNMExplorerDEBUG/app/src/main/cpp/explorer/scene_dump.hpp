@@ -10,6 +10,12 @@
 #include <unordered_map>
 #include "json.hpp"
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 struct scene_dump_state {
     std::mutex mtx;
     bool running = false;
@@ -284,3 +290,8 @@ static void register_dump_routes(httplib::Server& svr) {
         res.set_content(text, "text/plain; charset=utf-8");
     });
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

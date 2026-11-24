@@ -4,6 +4,7 @@
 
 #include <Internals.hpp>
 
+namespace {
 namespace Classes {
     static BNM::Class AsyncOperation{}, WaitForEndOfFrame{}, WaitForFixedUpdate{}, WaitForSeconds{}, WaitForSecondsRealtime{};
 }
@@ -26,6 +27,7 @@ struct CustomWait : BNM::IL2CPP::Il2CppObject {
     void Reset() {}
     [[nodiscard]] static Il2CppObject *Current() { return nullptr; }
 };
+}
 
 struct BNM::Coroutine::_IEnumeratorInit {
     inline static void Init() {

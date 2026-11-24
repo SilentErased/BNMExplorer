@@ -7,6 +7,12 @@
 #include <string>
 #include "lua_objects.hpp"
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 struct lua_task {
     int id;
     int ref;
@@ -256,3 +262,8 @@ static int l_has_tick_hook(lua_State* L) {
     lua_pushboolean(L, g_rt.main_hook_active.load());
     return 1;
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

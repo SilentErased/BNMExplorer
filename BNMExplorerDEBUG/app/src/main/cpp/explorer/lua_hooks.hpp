@@ -8,6 +8,12 @@
 #include <dobby.h>
 #include "lua_runtime.hpp"
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 static constexpr int lua_hook_slot_count = 32;
 static constexpr int lua_hook_max_args = 8;
 
@@ -293,7 +299,7 @@ static int l_hook_method(lua_State* L) {
     value_kind parameter_kinds[lua_hook_max_args]{};
     for (int i = 0; i < parameter_count; ++i) {
         if (!method->parameters) return luaL_error(L, "method parameter metadata is unavailable");
-        parameter_kinds[i] = kind_from_type(method->parameters[i]);
+        parameter_kinds[i] = kind_from_type(bnm_method_parameter_type(method, static_cast<uint32_t>(i)));
         if (!lua_hook_is_arg_kind(parameter_kinds[i]))
             return luaL_error(L, "parameter %d has unsupported ABI type", i + 1);
     }
@@ -406,3 +412,8 @@ static void register_lua_hooks(lua_State* L) {
     lua_pushlightuserdata(L, &g_lua_hook_null_marker);
     lua_setglobal(L, "HOOK_NULL");
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

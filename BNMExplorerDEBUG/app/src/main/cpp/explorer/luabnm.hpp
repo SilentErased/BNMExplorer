@@ -7,6 +7,12 @@
 #include "lua_hooks.hpp"
 #include "lua_modules.hpp"
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 static const char* lua_prelude_source = R"lua(
 game_object = find_class("UnityEngine.GameObject")
 unity_object = find_class("UnityEngine.Object")
@@ -278,3 +284,8 @@ static void reset_lua_bnm() {
 static std::string poll_lua_bnm_output() {
     return rt_take_async_output();
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

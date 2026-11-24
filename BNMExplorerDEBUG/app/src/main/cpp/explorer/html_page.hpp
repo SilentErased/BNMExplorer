@@ -1,6 +1,12 @@
 #pragma once
 #include <string>
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 inline std::string get_explorer_html(int asm_count) {
     std::string html = R"HTML(<!DOCTYPE html>
 <html lang="en">
@@ -2257,3 +2263,8 @@ init();
 </html>)HTML";
     return html;
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

@@ -41,7 +41,13 @@
 //#define UNITY_VER 203 // Unity 2020.3.20 - 2020.3.xx
 //#define UNITY_VER 211 // Unity 2021.1.x (Set UNITY_PATCH_VER = 24 if patch >= 24)
 //#define UNITY_VER 212 // Unity 2021.2.x
-#define UNITY_VER 213 // Unity 2021.3.x (LTS)
+#ifndef UNITY_VER
+#define UNITY_VER 213
+#endif
+
+#ifndef UNITY_PATCH_VER
+#define UNITY_PATCH_VER 0
+#endif
 //#define UNITY_VER 221 // Unity 2022.1.x
 //#define UNITY_VER 222 // Unity 2022.2.x - 2022.3.x (LTS)
 //#define UNITY_VER 231 // Unity 2023.1.x
@@ -59,7 +65,7 @@
 
 //! --- Example A: Dobby Hook ---
 #include <dobby.h>
-#define BNM_HOOK(target, replace, orig) (DobbyHook((void *)(target), (dobby_dummy_func_t)(replace), (dobby_dummy_func_t *)(orig)), (void *)(target))
+#define BNM_HOOK(target, replace, orig) (DobbyHook((void *)(target), (dobby_dummy_func_t)(replace), (dobby_dummy_func_t *)(orig)) == RT_SUCCESS ? (void *)(target) : nullptr)
 #define BNM_UNHOOK(ptr)                 DobbyDestroy((void *)(ptr))
 
 //! --- Example B: ByteDance ShadowHook (Recommended for Android 7 - 14+) ---

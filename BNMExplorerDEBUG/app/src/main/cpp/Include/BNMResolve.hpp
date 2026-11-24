@@ -24,12 +24,49 @@
 #include <BNM/UnityStructures.hpp>
 #include <BNM/Utils.hpp>
 
+#include "autodetect/variant_namespace.hpp"
 #define O(str) BNM_OBFUSCATE(str)
 
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 using namespace BNM;
+using namespace BNM::IL2CPP;
 using namespace Structures::Unity;
 using namespace Structures::Mono;
 using UnityEngine::Object;
+
+static inline const Il2CppType* bnm_method_parameter_type(const MethodInfo* method, uint32_t index) {
+    if (!method || index >= method->parameters_count || !method->parameters) return nullptr;
+#if UNITY_VER < 212
+    return method->parameters[index].parameter_type;
+#else
+    return method->parameters[index];
+#endif
+}
+
+static inline bool bnm_class_is_value_type(const Il2CppClass* klass) {
+    if (!klass) return false;
+#if UNITY_VER < 211
+    return klass->valuetype;
+#else
+    return klass->byval_arg.valuetype;
+#endif
+}
+
+static inline bool bnm_type_is_value_type(const Il2CppType* type) {
+    if (!type) return false;
+#if UNITY_VER < 211
+    if (type->type == IL2CPP_TYPE_VALUETYPE) return true;
+    if (type->type == IL2CPP_TYPE_GENERICINST && type->data.generic_class && type->data.generic_class->cached_class)
+        return bnm_class_is_value_type(type->data.generic_class->cached_class);
+    return false;
+#else
+    return type->valuetype;
+#endif
+}
 struct NamedObject;
 struct Component;
 struct GameObject;
@@ -1810,3 +1847,8 @@ struct ParticleSystem : Component {
         return mclass;
     }
 };
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

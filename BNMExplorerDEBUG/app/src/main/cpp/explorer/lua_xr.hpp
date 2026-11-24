@@ -2,6 +2,12 @@
 #include <algorithm>
 #include "lua_objects.hpp"
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 struct xr_input_device {
     uint64_t device_id;
     uint64_t extra;
@@ -172,3 +178,8 @@ static void register_xr(lua_State* L) {
     lua_setfield(L, -2, "send_haptic_impulse");
     lua_setglobal(L, "xr");
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

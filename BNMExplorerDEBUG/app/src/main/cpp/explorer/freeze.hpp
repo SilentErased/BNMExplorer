@@ -19,6 +19,12 @@
 #include <dobby.h>
 #include "json.hpp"
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 static std::atomic<bool> g_freeze{false};
 static std::atomic<uint64_t> g_freeze_blocked_destroy{0};
 static std::atomic<uint64_t> g_freeze_blocked_scene{0};
@@ -841,3 +847,8 @@ static void register_freeze_routes(httplib::Server& svr) {
         res.set_content("{\"ok\":true}", "application/json");
     });
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

@@ -1,6 +1,12 @@
 #pragma once
 #include "lua_objects.hpp"
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 static Array<Il2CppObject*>* find_objects_array(Il2CppClass* klass, char* err, size_t err_size) {
     err[0] = '\0';
     Il2CppClass* uo = find_class_cached("UnityEngine.Object", "");
@@ -26,7 +32,7 @@ static Array<Il2CppObject*>* find_objects_array(Il2CppClass* klass, char* err, s
     for (const auto& a : attempts) {
         const auto& cand = find_candidates(uo, a.name, a.argc);
         for (auto* mi : cand) {
-            if (type_full_name(mi->parameters[0]) != "System.Type") continue;
+            if (type_full_name(bnm_method_parameter_type(mi, 0)) != "System.Type") continue;
             value_slot extra;
             memset(extra.bytes, 0, sizeof(extra.bytes));
             void* args[2] = {type_obj, extra.bytes};
@@ -153,3 +159,8 @@ static int l_scene_index(lua_State* L) {
     lua_settop(L, 1);
     return l_scene_find_object(L);
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

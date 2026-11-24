@@ -4,6 +4,12 @@
 #include "workspace.hpp"
 #include "lua_values.hpp"
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 static const char* module_cache_key = "luabnm.loaded";
 static int module_loading_tag = 0;
 
@@ -98,3 +104,8 @@ static int l_require(lua_State* L) {
     if (!require_module(L, name, error, sizeof(error))) return luaL_error(L, "%s", error);
     return 1;
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

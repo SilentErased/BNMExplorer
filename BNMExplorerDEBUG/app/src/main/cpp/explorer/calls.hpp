@@ -19,6 +19,12 @@
 #include "lua_values.hpp"
 #include "main_thread.hpp"
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 struct call_entry {
     int id = -1;
     void* address = nullptr;
@@ -366,9 +372,9 @@ static bool calls_hook_method(MethodInfo* mi, const std::string& cls_full, const
     entry->is_static = (mi->flags & 0x10) != 0;
     entry->param_count = (int)mi->parameters_count;
     for (int i = 0; i < entry->param_count; i++) {
-        entry->kinds[i] = kind_from_type(mi->parameters[i]);
+        entry->kinds[i] = kind_from_type(bnm_method_parameter_type(mi, static_cast<uint32_t>(i)));
         if (i) entry->params += ", ";
-        entry->params += calls_short_type(type_full_name(mi->parameters[i]));
+        entry->params += calls_short_type(type_full_name(bnm_method_parameter_type(mi, static_cast<uint32_t>(i))));
     }
     call_entry* raw = entry.get();
     {
@@ -987,3 +993,8 @@ static void register_calls_routes(httplib::Server& svr) {
         calls_reply(res, j);
     });
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

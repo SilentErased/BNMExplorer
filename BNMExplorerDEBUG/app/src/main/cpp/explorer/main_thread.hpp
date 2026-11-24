@@ -13,6 +13,12 @@
 #include <sys/syscall.h>
 #include <dobby.h>
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 struct mt_task {
     std::function<bool()> fn;
     bool urgent;
@@ -196,3 +202,8 @@ static bool mt_call_string(std::function<std::string()> fn, std::string& out, in
     out = job->result;
     return true;
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

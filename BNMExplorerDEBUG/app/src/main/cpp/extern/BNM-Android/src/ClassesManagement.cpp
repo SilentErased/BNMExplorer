@@ -507,9 +507,11 @@ static void CreateClass(MANAGEMENT_STRUCTURES::CustomClass *customClass, const C
 
 
 
+namespace BNM {
 namespace CompileTimeClassProcessors {
     typedef void (*ProcessorType)(CompileTimeClass &target, CompileTimeClass::_BaseInfo *info);
     extern ProcessorType processors[(uint8_t) CompileTimeClass::_BaseType::MaxCount];
+}
 }
 
 static CustomClassInfo GetClassInfo(const CompileTimeClass &compileTimeClass) {

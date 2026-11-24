@@ -6,11 +6,17 @@
 #include <cmath>
 #include <cstdio>
 
+#include "autodetect/variant_namespace.hpp"
 extern "C" {
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
 }
+
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
 
 using namespace BNM;
 using namespace BNM::IL2CPP;
@@ -514,3 +520,8 @@ static bool lua_matches_kind(lua_State* L, int idx, value_kind k, bool strict) {
     }
     return false;
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif

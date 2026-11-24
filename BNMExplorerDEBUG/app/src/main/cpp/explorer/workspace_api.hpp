@@ -3,6 +3,12 @@
 #include "workspace.hpp"
 #include "luabnm.hpp"
 
+#include "autodetect/variant_namespace.hpp"
+#ifndef BNM_APP_NAMESPACE_OPEN
+namespace BNM_APP_NAMESPACE {
+#define BNM_APP_NAMESPACE_CLOSE
+#endif
+
 static void ws_reply(httplib::Response& res, const nlohmann::json& j, int status = 200) {
     res.status = status;
     res.set_content(j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace), "application/json");
@@ -270,3 +276,8 @@ static void register_workspace_routes(httplib::Server& svr) {
         res.set_content(data, "application/zip");
     });
 }
+
+#ifdef BNM_APP_NAMESPACE_CLOSE
+}
+#undef BNM_APP_NAMESPACE_CLOSE
+#endif
