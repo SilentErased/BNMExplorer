@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include "lua_objects.hpp"
+#include "main_thread.hpp"
 
 #include "autodetect/variant_namespace.hpp"
 #ifndef BNM_APP_NAMESPACE_OPEN
@@ -20,6 +21,7 @@ struct lua_task {
     double interval;
     bool repeating;
     bool dead;
+    bool game_start = false;
 };
 
 struct lua_runtime_state {
@@ -27,6 +29,8 @@ struct lua_runtime_state {
     std::recursive_mutex mtx;
     std::mutex out_mtx;
     std::vector<lua_task> tasks;
+    std::vector<int> main_refs;
+    double main_pending_since = 0.0;
     std::string exec_output;
     std::string async_output;
     int next_id = 1;
@@ -108,9 +112,50 @@ static lua_task* rt_find_task(int id) {
     return nullptr;
 }
 
+static bool rt_frame_count_ready() {
+    static MethodInfo* mi = nullptr;
+    static bool searched = false;
+    if (!searched) {
+        searched = true;
+        Class time_cls("UnityEngine", "Time");
+        if (time_cls.IsValid()) {
+            const auto& cand = find_candidates(time_cls.GetClass(), "get_frameCount", 0);
+            if (!cand.empty() && cand.front()->methodPointer) mi = cand.front();
+        }
+    }
+    if (!mi) return true;
+    char err[128];
+    void* ret = invoke_raw(mi, nullptr, nullptr, err, sizeof(err));
+    if (!ret) return false;
+    return *(int*)((uint8_t*)ret + sizeof(Il2CppObject)) > 0;
+}
+
+static void rt_pump_main_locked(lua_State* L) {
+    if (!L || g_rt.main_refs.empty()) return;
+    std::vector<int> refs;
+    refs.swap(g_rt.main_refs);
+    g_rt.main_pending_since = 0.0;
+    double previous_deadline = g_rt.deadline;
+    for (int ref : refs) {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+        luaL_unref(L, LUA_REGISTRYINDEX, ref);
+        g_rt.deadline = rt_now() + callback_timeout_seconds;
+        if (lua_pcall(L, 0, 0, 0)) {
+            const char* msg = lua_tostring(L, -1);
+            rt_append_output(std::string("MainThreadError: ") + (msg ? msg : "unknown"));
+            lua_pop(L, 1);
+        }
+        g_rt.deadline = previous_deadline;
+    }
+}
+
 static void rt_run_task(lua_State* L, int id) {
     lua_task* t = rt_find_task(id);
     if (!t || t->dead) return;
+    if (t->game_start && !rt_frame_count_ready()) {
+        t->next_time = rt_now() + 0.25;
+        return;
+    }
     int ref = t->ref;
     lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
     g_rt.deadline = rt_now() + callback_timeout_seconds;
@@ -150,6 +195,8 @@ static void rt_pump_locked() {
     }
 }
 
+static void rt_pump_from_main();
+
 static void rt_worker_loop() {
     BNM::AttachIl2Cpp();
     while (true) {
@@ -158,12 +205,15 @@ static void rt_worker_loop() {
         std::unique_lock<std::recursive_mutex> lk(g_rt.mtx, std::try_to_lock);
         if (!lk.owns_lock()) continue;
         rt_pump_locked();
+        if (!g_rt.main_refs.empty() && g_rt.main_pending_since > 0 && rt_now() - g_rt.main_pending_since > 3.0)
+            rt_pump_main_locked(g_rt.state);
     }
 }
 
 static void rt_ensure_worker() {
     if (g_rt.worker_started) return;
     g_rt.worker_started = true;
+    g_mt_slice_extra = rt_pump_from_main;
     std::thread(rt_worker_loop).detach();
 }
 
@@ -174,6 +224,7 @@ static void rt_pump_from_main() {
     if (now - g_rt.last_pump < 0.004) return;
     g_rt.last_pump = now;
     rt_pump_locked();
+    rt_pump_main_locked(g_rt.state);
 }
 
 static void (*g_tick_original)(void*) = nullptr;
@@ -183,7 +234,7 @@ static void tick_trampoline(void* self) {
     rt_pump_from_main();
 }
 
-static int add_task(lua_State* L, double delay, double interval, bool repeating) {
+static int add_task(lua_State* L, double delay, double interval, bool repeating, bool game_start = false) {
     luaL_checktype(L, -1, LUA_TFUNCTION);
     lua_task t;
     t.id = g_rt.next_id++;
@@ -192,6 +243,7 @@ static int add_task(lua_State* L, double delay, double interval, bool repeating)
     t.interval = interval;
     t.repeating = repeating;
     t.dead = false;
+    t.game_start = game_start;
     g_rt.tasks.push_back(t);
     rt_ensure_worker();
     lua_pushnumber(L, t.id);
@@ -220,6 +272,25 @@ static int l_on_update(lua_State* L) {
     luaL_checktype(L, 1, LUA_TFUNCTION);
     lua_settop(L, 1);
     return add_task(L, 0.0, 0.0, true);
+}
+
+static int l_on_game_start(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TFUNCTION);
+    lua_settop(L, 1);
+    return add_task(L, 0.1, 0.25, false, true);
+}
+
+static int l_main_thread(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TFUNCTION);
+    lua_settop(L, 1);
+    mt_install();
+    lua_pushvalue(L, 1);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    std::lock_guard<std::recursive_mutex> lk(g_rt.mtx);
+    g_rt.main_refs.push_back(ref);
+    g_rt.main_pending_since = rt_now();
+    rt_ensure_worker();
+    return 0;
 }
 
 static int l_cancel(lua_State* L) {

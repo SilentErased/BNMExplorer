@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <cmath>
 #include <cstdio>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "autodetect/variant_namespace.hpp"
 extern "C" {
@@ -176,6 +178,71 @@ static bool kind_is_numeric(value_kind k) {
 
 static bool kind_is_vector(value_kind k) {
     return k == value_kind::vec2 || k == value_kind::vec3 || k == value_kind::vec4 || k == value_kind::color;
+}
+
+static bool address_plausible(uintptr_t p) {
+    return p >= 0x10000 && (p & 0x00FFFFFFFFFFFFFFULL) < 0x0001000000000000ULL;
+}
+
+struct value_pipe_holder {
+    int fds[2] = {-1, -1};
+    bool failed = false;
+    ~value_pipe_holder() {
+        if (fds[0] >= 0) close(fds[0]);
+        if (fds[1] >= 0) close(fds[1]);
+    }
+};
+
+static bool is_readable_bytes(const void* ptr, size_t size) {
+    if (!ptr || size == 0 || size > 4096) return false;
+    if (!address_plausible((uintptr_t)ptr)) return false;
+    static thread_local value_pipe_holder holder;
+    if (holder.failed) return false;
+    if (holder.fds[0] < 0) {
+        if (pipe2(holder.fds, O_CLOEXEC | O_NONBLOCK) != 0) {
+            holder.failed = true;
+            return true;
+        }
+    }
+    ssize_t w = write(holder.fds[1], ptr, size);
+    if (w < 0) return false;
+    char sink[256];
+    ssize_t left = w;
+    while (left > 0) {
+        ssize_t r = read(holder.fds[0], sink, (size_t)left < sizeof(sink) ? (size_t)left : sizeof(sink));
+        if (r <= 0) break;
+        left -= r;
+    }
+    return (size_t)w == size;
+}
+
+static const size_t max_struct_bytes = 1024;
+
+static size_t struct_data_size(const Il2CppType* t) {
+    if (!t || !bnm_type_is_value_type(t)) return 0;
+    try {
+        Class c(t);
+        auto* k = c.IsValid() ? c.GetClass() : nullptr;
+        if (!k || k->instance_size <= sizeof(Il2CppObject)) return 0;
+        size_t n = (size_t)k->instance_size - sizeof(Il2CppObject);
+        return n <= max_struct_bytes ? n : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+enum class arg_shape {
+    normal,
+    byref,
+    inplace
+};
+
+static arg_shape arg_shape_of(const Il2CppType* t) {
+    if (!t) return arg_shape::normal;
+    if (t->byref) return arg_shape::byref;
+    value_kind k = kind_from_type(t);
+    if ((k == value_kind::unsupported || k == value_kind::unknown) && bnm_type_is_value_type(t)) return arg_shape::inplace;
+    return arg_shape::normal;
 }
 
 static int kind_components(value_kind k) {

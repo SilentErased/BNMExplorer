@@ -28,10 +28,6 @@ struct member_info {
     bool found;
 };
 
-static bool address_plausible(uintptr_t p) {
-    return p >= 0x10000 && (p & 0x00FFFFFFFFFFFFFFULL) < 0x0001000000000000ULL;
-}
-
 static Il2CppGCHandle new_handle(Il2CppObject* obj) {
     auto& m = BNM::Internal::il2cppMethods;
     if (obj && m.il2cpp_gchandle_new) return m.il2cpp_gchandle_new(obj, false);
@@ -88,6 +84,46 @@ static uintptr_t ref_address_at(lua_State* L, int idx, bool& is_ref) {
     }
     luaL_error(L, "argument %d: object expected", idx);
     return 0;
+}
+
+static void* lua_to_arg_shaped(lua_State* L, int idx, const Il2CppType* t, value_slot& slot) {
+    memset(slot.bytes, 0, sizeof(slot.bytes));
+    arg_shape shape = arg_shape_of(t);
+    if (shape == arg_shape::byref) {
+        uintptr_t addr = 0;
+        if (!lua_isnil(L, idx) && !lua_isnone(L, idx)) {
+            bool is_ref = false;
+            addr = ref_address_at(L, idx, is_ref);
+        }
+        memcpy(slot.bytes, &addr, sizeof(addr));
+        return slot.bytes;
+    }
+    if (shape == arg_shape::inplace) {
+        size_t n = struct_data_size(t);
+        if (n == 0) luaL_error(L, "argument %d: unsupported struct type", idx);
+        if (lua_isnil(L, idx) || lua_isnone(L, idx)) return slot.bytes;
+        uintptr_t addr = 0;
+        const uint8_t* src = nullptr;
+        if (auto* r = (lua_ref*)test_udata(L, idx, mt_ref)) {
+            if (!r->inst || !address_plausible(r->inst)) luaL_error(L, "argument %d: invalid struct instance", idx);
+            src = (const uint8_t*)r->inst + sizeof(Il2CppObject);
+        } else {
+            bool is_ref = false;
+            addr = ref_address_at(L, idx, is_ref);
+            if (!addr || !address_plausible(addr)) luaL_error(L, "argument %d: object or address expected for struct", idx);
+            src = (const uint8_t*)addr;
+        }
+        if (!is_readable_bytes(src, n)) luaL_error(L, "argument %d: struct memory is not readable", idx);
+        memcpy(slot.bytes, src, n);
+        return slot.bytes;
+    }
+    return lua_to_arg(L, idx, kind_from_type(t), slot);
+}
+
+static Il2CppObject* box_struct_value(Il2CppClass* klass, const void* data) {
+    auto& m = BNM::Internal::il2cppMethods;
+    if (!klass || !m.il2cpp_value_box) return nullptr;
+    return m.il2cpp_value_box(klass, const_cast<void*>(data));
 }
 
 static Il2CppClass* find_class_cached(const std::string& full_name, const std::string& asm_name) {
@@ -256,8 +292,8 @@ static int invoke_method_info(lua_State* L, MethodInfo* mi, Il2CppObject* inst, 
     value_slot slots[max_call_args];
     void* args[max_call_args];
     for (int i = 0; i < argc; i++) {
-        value_kind k = kind_from_type(bnm_method_parameter_type(mi, static_cast<uint32_t>(i)));
-        args[i] = lua_to_arg(L, first + i, k, slots[i]);
+        const Il2CppType* pt = bnm_method_parameter_type(mi, static_cast<uint32_t>(i));
+        args[i] = lua_to_arg_shaped(L, first + i, pt, slots[i]);
     }
     Il2CppException* exc = nullptr;
     void* ret = BNM::Internal::il2cppMethods.il2cpp_runtime_invoke(mi, is_static ? nullptr : (void*)inst, argc ? args : nullptr, &exc);
@@ -269,7 +305,11 @@ static int invoke_method_info(lua_State* L, MethodInfo* mi, Il2CppObject* inst, 
     value_kind rk = kind_from_type(mi->return_type);
     if (rk == value_kind::nothing) return 0;
     if (rk == value_kind::unsupported || rk == value_kind::unknown) {
-        lua_pushnil(L);
+        if (!ret) {
+            lua_pushnil(L);
+            return 1;
+        }
+        push_object(L, (Il2CppObject*)ret);
         return 1;
     }
     push_return(L, rk, ret);
@@ -293,10 +333,47 @@ static void* invoke_raw(MethodInfo* mi, void* inst, void** args, char* error_out
 
 static int read_field(lua_State* L, const lua_ref* r, FieldInfo* fi) {
     value_kind k = kind_from_type(fi->type);
-    if (k == value_kind::unsupported || k == value_kind::unknown || k == value_kind::nothing)
+    if (k == value_kind::nothing)
         return luaL_error(L, "field '%s' has an unsupported type", fi->name);
     bool is_static = (fi->type->attrs & 0x10) != 0;
     auto& m = BNM::Internal::il2cppMethods;
+    if (k == value_kind::unsupported || k == value_kind::unknown) {
+        if (fi->type->byref) {
+            const void* src = nullptr;
+            if (is_static) {
+                value_slot slot;
+                memset(slot.bytes, 0, sizeof(slot.bytes));
+                if (m.il2cpp_runtime_class_init && fi->parent) m.il2cpp_runtime_class_init(fi->parent);
+                m.il2cpp_field_static_get_value(fi, slot.bytes);
+                src = slot.bytes;
+            } else {
+                if (!r->inst) return luaL_error(L, "field '%s' needs an object instance", fi->name);
+                src = (const uint8_t*)r->inst + fi->offset;
+            }
+            lua_pushnumber(L, (double)(uintptr_t)*(const void**)src);
+            return 1;
+        }
+        if (!bnm_type_is_value_type(fi->type))
+            return luaL_error(L, "field '%s' has an unsupported type", fi->name);
+        Il2CppClass* fk = nullptr;
+        try {
+            Class c(fi->type);
+            fk = c.IsValid() ? c.GetClass() : nullptr;
+        } catch (...) {
+        }
+        if (!fk) return luaL_error(L, "field '%s': struct class unavailable", fi->name);
+        if (is_static) {
+            value_slot slot;
+            memset(slot.bytes, 0, sizeof(slot.bytes));
+            if (m.il2cpp_runtime_class_init && fi->parent) m.il2cpp_runtime_class_init(fi->parent);
+            m.il2cpp_field_static_get_value(fi, slot.bytes);
+            push_object(L, box_struct_value(fk, slot.bytes));
+            return 1;
+        }
+        if (!r->inst) return luaL_error(L, "field '%s' needs an object instance", fi->name);
+        push_object(L, box_struct_value(fk, (const uint8_t*)r->inst + fi->offset));
+        return 1;
+    }
     if (is_static) {
         value_slot slot;
         memset(slot.bytes, 0, sizeof(slot.bytes));
@@ -312,14 +389,56 @@ static int read_field(lua_State* L, const lua_ref* r, FieldInfo* fi) {
 
 static int write_field(lua_State* L, const lua_ref* r, FieldInfo* fi, int value_idx) {
     value_kind k = kind_from_type(fi->type);
-    if (k == value_kind::unsupported || k == value_kind::unknown || k == value_kind::nothing)
+    if (k == value_kind::nothing)
         return luaL_error(L, "field '%s' has an unsupported type", fi->name);
+    bool is_static = (fi->type->attrs & 0x10) != 0;
+    auto& m = BNM::Internal::il2cppMethods;
+    if (k == value_kind::unsupported || k == value_kind::unknown) {
+        if (fi->type->byref) {
+            uintptr_t addr = 0;
+            if (!lua_isnil(L, value_idx)) {
+                bool is_ref = false;
+                addr = ref_address_at(L, value_idx, is_ref);
+            }
+            if (is_static) {
+                if (m.il2cpp_runtime_class_init && fi->parent) m.il2cpp_runtime_class_init(fi->parent);
+                m.il2cpp_field_static_set_value(fi, &addr);
+                return 0;
+            }
+            if (!r->inst) return luaL_error(L, "field '%s' needs an object instance", fi->name);
+            memcpy((uint8_t*)r->inst + fi->offset, &addr, sizeof(addr));
+            return 0;
+        }
+        if (!bnm_type_is_value_type(fi->type))
+            return luaL_error(L, "field '%s' has an unsupported type", fi->name);
+        size_t n = struct_data_size(fi->type);
+        if (n == 0) return luaL_error(L, "field '%s': unsupported struct size", fi->name);
+        if (lua_isnil(L, value_idx)) return luaL_error(L, "field '%s': boxed struct expected", fi->name);
+        uintptr_t addr = 0;
+        const uint8_t* src = nullptr;
+        if (auto* b = (lua_ref*)test_udata(L, value_idx, mt_ref)) {
+            if (!b->inst || !address_plausible(b->inst)) return luaL_error(L, "field '%s': invalid boxed struct", fi->name);
+            src = (const uint8_t*)b->inst + sizeof(Il2CppObject);
+        } else {
+            bool is_ref = false;
+            addr = ref_address_at(L, value_idx, is_ref);
+            if (!addr || !address_plausible(addr)) return luaL_error(L, "field '%s': boxed struct or address expected", fi->name);
+            src = (const uint8_t*)addr;
+        }
+        if (!is_readable_bytes(src, n)) return luaL_error(L, "field '%s': struct memory is not readable", fi->name);
+        if (is_static) {
+            if (m.il2cpp_runtime_class_init && fi->parent) m.il2cpp_runtime_class_init(fi->parent);
+            m.il2cpp_field_static_set_value(fi, const_cast<uint8_t*>(src));
+            return 0;
+        }
+        if (!r->inst) return luaL_error(L, "field '%s' needs an object instance", fi->name);
+        memcpy((uint8_t*)r->inst + fi->offset, src, n);
+        return 0;
+    }
     value_slot arg_slot;
     value_slot store_slot;
     void* arg = lua_to_arg(L, value_idx, k, arg_slot);
     void* src = slot_source(k, arg, store_slot);
-    bool is_static = (fi->type->attrs & 0x10) != 0;
-    auto& m = BNM::Internal::il2cppMethods;
     if (is_static) {
         if (m.il2cpp_runtime_class_init && fi->parent) m.il2cpp_runtime_class_init(fi->parent);
         m.il2cpp_field_static_set_value(fi, src);

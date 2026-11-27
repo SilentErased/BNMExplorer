@@ -86,11 +86,18 @@ static void mt_run_slice() {
 using mt_fn = void* (*)(void*, void*);
 static const int mt_hook_slots = 3;
 static mt_fn g_mt_orig[mt_hook_slots] = {};
+static void (*g_mt_slice_extra)() = nullptr;
 
 template <int N>
 static void* mt_hook(void* a0, void* a1) {
     void* r = g_mt_orig[N] ? g_mt_orig[N](a0, a1) : nullptr;
     if (g_mt_pending.load(std::memory_order_relaxed) > 0) mt_run_slice();
+    if (g_mt_slice_extra) {
+        try {
+            g_mt_slice_extra();
+        } catch (...) {
+        }
+    }
     return r;
 }
 

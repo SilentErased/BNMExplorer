@@ -38,6 +38,7 @@ struct lua_hook_regs {
 struct lua_hook_param {
     value_kind kind = value_kind::unsupported;
     bool in_fp = false;
+    bool byref = false;
     int reg = 0;
 };
 
@@ -60,6 +61,11 @@ struct lua_hook_result {
     uint64_t word = 0;
     float f32 = 0.0f;
     double f64 = 0.0;
+    float vec[4] = {0, 0, 0, 0};
+};
+
+struct lua_hook_vec_ret {
+    float v[4];
 };
 
 static lua_hook_entry g_lua_hooks[lua_hook_slot_count];
@@ -120,6 +126,10 @@ static void lua_hook_push_word(lua_State* L, value_kind kind, uint64_t raw) {
 }
 
 static void lua_hook_push_param(lua_State* L, const lua_hook_param& p, const lua_hook_regs& r) {
+    if (p.byref) {
+        lua_pushnumber(L, (double)r.x[p.reg]);
+        return;
+    }
     if (!p.in_fp) {
         lua_hook_push_word(L, p.kind, r.x[p.reg]);
         return;
@@ -164,12 +174,25 @@ static uint64_t lua_hook_read_word(lua_State* L, int index, value_kind kind) {
         case value_kind::string:
             if (lua_hook_is_null_marker(L, index) || lua_isnil(L, index)) return 0;
             if (lua_type(L, index) == LUA_TSTRING) return (uint64_t)(uintptr_t)CreateMonoString(lua_tostring(L, index));
+            if (lua_type(L, index) == LUA_TTABLE) {
+                lua_getfield(L, index, "addr");
+                uint64_t saddr = lua_isnumber(L, -1) ? (uint64_t)lua_tonumber(L, -1) : 0;
+                lua_pop(L, 1);
+                return saddr;
+            }
             return 0;
         case value_kind::object: {
             if (lua_hook_is_null_marker(L, index) || lua_isnil(L, index)) return 0;
             if (auto* ref = (lua_ref*)test_udata(L, index, mt_ref)) return (uint64_t)ref->inst;
             if (lua_islightuserdata(L, index)) return (uint64_t)(uintptr_t)lua_touserdata(L, index);
             if (lua_isnumber(L, index)) return (uint64_t)lua_tonumber(L, index);
+            if (lua_type(L, index) == LUA_TSTRING) return (uint64_t)(uintptr_t)CreateMonoString(lua_tostring(L, index));
+            if (lua_type(L, index) == LUA_TTABLE) {
+                lua_getfield(L, index, "addr");
+                uint64_t taddr = lua_isnumber(L, -1) ? (uint64_t)lua_tonumber(L, -1) : 0;
+                lua_pop(L, 1);
+                return taddr;
+            }
             return 0;
         }
         default:
@@ -231,6 +254,14 @@ static lua_hook_result lua_hook_dispatch(int slot, const lua_hook_regs& regs, ui
         result.call_original = (lua_isboolean(L, value_index) && lua_toboolean(L, value_index)) || lua_hook_is_original_token(L, value_index);
     } else if (lua_isnil(L, value_index) || lua_hook_is_original_token(L, value_index)) {
         result.call_original = true;
+    } else if (kind_is_vector(entry.return_kind)) {
+        result.call_original = false;
+        vec_value v{};
+        if (read_vec(L, value_index, v)) {
+            if (entry.return_kind == value_kind::color && v.n < 4) v.c[3] = 1.0f;
+            int n = kind_components(entry.return_kind);
+            for (int i = 0; i < n; ++i) result.vec[i] = v.c[i];
+        }
     } else {
         result.call_original = false;
         if (entry.return_kind == value_kind::float32) result.f32 = (float)lua_tonumber(L, value_index);
@@ -284,9 +315,22 @@ static double lua_hook_double(LUA_HOOK_PARAMS) {
     return result.call_original ? lua_hook_call_original<double>(entry.original, regs) : result.f64;
 }
 
+template<int Slot>
+static lua_hook_vec_ret lua_hook_vec(LUA_HOOK_PARAMS) {
+    lua_hook_regs regs = LUA_HOOK_REGS;
+    lua_hook_entry& entry = g_lua_hooks[Slot];
+    lua_hook_vec_ret out{};
+    if (!entry.installed) return out;
+    lua_hook_result result = lua_hook_dispatch(Slot, regs, (uintptr_t)__builtin_return_address(0));
+    if (result.call_original) return lua_hook_call_original<lua_hook_vec_ret>(entry.original, regs);
+    for (int i = 0; i < 4; ++i) out.v[i] = result.vec[i];
+    return out;
+}
+
 using lua_hook_word_fn = uint64_t (*)(LUA_HOOK_PARAMS);
 using lua_hook_float_fn = float (*)(LUA_HOOK_PARAMS);
 using lua_hook_double_fn = double (*)(LUA_HOOK_PARAMS);
+using lua_hook_vec_fn = lua_hook_vec_ret (*)(LUA_HOOK_PARAMS);
 
 template<int... I>
 static constexpr std::array<lua_hook_word_fn, sizeof...(I)> lua_hook_make_word_table(std::integer_sequence<int, I...>) {
@@ -303,9 +347,15 @@ static constexpr std::array<lua_hook_double_fn, sizeof...(I)> lua_hook_make_doub
     return {{&lua_hook_double<I>...}};
 }
 
+template<int... I>
+static constexpr std::array<lua_hook_vec_fn, sizeof...(I)> lua_hook_make_vec_table(std::integer_sequence<int, I...>) {
+    return {{&lua_hook_vec<I>...}};
+}
+
 static const auto g_lua_hook_word_thunks = lua_hook_make_word_table(std::make_integer_sequence<int, lua_hook_slot_count>{});
 static const auto g_lua_hook_float_thunks = lua_hook_make_float_table(std::make_integer_sequence<int, lua_hook_float_slot_count>{});
 static const auto g_lua_hook_double_thunks = lua_hook_make_double_table(std::make_integer_sequence<int, lua_hook_float_slot_count>{});
+static const auto g_lua_hook_vec_thunks = lua_hook_make_vec_table(std::make_integer_sequence<int, lua_hook_float_slot_count>{});
 
 static std::string lua_hook_short_type(const std::string& full) {
     size_t dot = full.rfind('.');
@@ -369,8 +419,10 @@ static bool lua_hook_assign_registers(MethodInfo* method, lua_hook_entry& entry,
     int next_fp = 0;
     for (int i = 0; i < entry.param_count; ++i) {
         lua_hook_param& p = entry.params[i];
-        p.kind = kind_from_type(bnm_method_parameter_type(method, static_cast<uint32_t>(i)));
-        if (lua_hook_is_word_kind(p.kind)) {
+        const Il2CppType* pt = bnm_method_parameter_type(method, static_cast<uint32_t>(i));
+        p.kind = kind_from_type(pt);
+        p.byref = arg_shape_of(pt) == arg_shape::byref;
+        if (p.byref || lua_hook_is_word_kind(p.kind)) {
             if (next_int >= lua_hook_int_regs) {
                 error = "too many integer arguments for a register hook";
                 return false;
@@ -425,7 +477,7 @@ static int lua_hook_allocate_slot(void* address, value_kind return_kind, bool& r
         }
     }
     reuse = false;
-    const bool needs_float_slot = return_kind == value_kind::float32 || return_kind == value_kind::float64;
+    const bool needs_float_slot = return_kind == value_kind::float32 || return_kind == value_kind::float64 || kind_is_vector(return_kind);
     if (needs_float_slot) {
         for (int i = 0; i < lua_hook_float_slot_count; ++i)
             if (!g_lua_hooks[i].installed) return i;
@@ -451,7 +503,7 @@ static int l_hook_method(lua_State* L) {
     if ((int)method->parameters_count > lua_hook_max_params) return luaL_error(L, "method has too many parameters");
 
     value_kind return_kind = kind_from_type(method->return_type);
-    const bool fp_return = return_kind == value_kind::float32 || return_kind == value_kind::float64;
+    const bool fp_return = return_kind == value_kind::float32 || return_kind == value_kind::float64 || kind_is_vector(return_kind);
     if (!(return_kind == value_kind::nothing || lua_hook_is_word_kind(return_kind) || fp_return))
         return luaL_error(L, "unsupported return type for hook_method");
 
@@ -482,6 +534,7 @@ static int l_hook_method(lua_State* L) {
         dobby_dummy_func_t replacement = (dobby_dummy_func_t)g_lua_hook_word_thunks[slot];
         if (return_kind == value_kind::float32) replacement = (dobby_dummy_func_t)g_lua_hook_float_thunks[slot];
         else if (return_kind == value_kind::float64) replacement = (dobby_dummy_func_t)g_lua_hook_double_thunks[slot];
+        else if (kind_is_vector(return_kind)) replacement = (dobby_dummy_func_t)g_lua_hook_vec_thunks[slot];
         dobby_dummy_func_t original = nullptr;
         int status = DobbyHook(address, replacement, &original);
         if (status != RT_SUCCESS || !original) {
@@ -567,6 +620,81 @@ static int l_hook_caller(lua_State* L) {
     return 1;
 }
 
+static const char* lua_hook_kind_label(value_kind k) {
+    switch (k) {
+        case value_kind::nothing: return "void";
+        case value_kind::boolean: return "bool";
+        case value_kind::int8: return "int8";
+        case value_kind::uint8: return "uint8";
+        case value_kind::int16: return "int16";
+        case value_kind::uint16: return "uint16";
+        case value_kind::int32: return "int32";
+        case value_kind::uint32: return "uint32";
+        case value_kind::int64: return "int64";
+        case value_kind::uint64: return "uint64";
+        case value_kind::float32: return "float";
+        case value_kind::float64: return "double";
+        case value_kind::string: return "string";
+        case value_kind::vec2: return "vec2";
+        case value_kind::vec3: return "vec3";
+        case value_kind::vec4: return "vec4";
+        case value_kind::color: return "color";
+        case value_kind::enumeration: return "enum";
+        case value_kind::object: return "object";
+        default: return "unsupported";
+    }
+}
+
+static lua_hook_entry* lua_hook_check_entry(lua_State* L) {
+    int id = (int)luaL_checkinteger(L, 1);
+    if (id < 1 || id > lua_hook_slot_count || !g_lua_hooks[id - 1].installed)
+        return nullptr;
+    return &g_lua_hooks[id - 1];
+}
+
+static int l_set_hook_callback(lua_State* L) {
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    std::lock_guard<std::recursive_mutex> lock(g_rt.mtx);
+    lua_hook_entry* entry = lua_hook_check_entry(L);
+    if (!entry) return luaL_error(L, "hook %d is not installed", (int)luaL_checkinteger(L, 1));
+    lua_pushvalue(L, 2);
+    int new_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    if (entry->callback_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, entry->callback_ref);
+    entry->callback_ref = new_ref;
+    entry->calls.store(0);
+    entry->active.store(true, std::memory_order_release);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+static int l_get_hook(lua_State* L) {
+    lua_hook_entry* entry = lua_hook_check_entry(L);
+    if (!entry) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_newtable(L);
+    lua_pushinteger(L, (lua_Integer)(entry - g_lua_hooks) + 1);
+    lua_setfield(L, -2, "id");
+    lua_pushstring(L, entry->label.c_str());
+    lua_setfield(L, -2, "name");
+    lua_pushboolean(L, entry->active.load());
+    lua_setfield(L, -2, "active");
+    lua_pushnumber(L, (double)entry->calls.load());
+    lua_setfield(L, -2, "calls");
+    lua_pushboolean(L, entry->is_static);
+    lua_setfield(L, -2, "is_static");
+    lua_pushinteger(L, entry->param_count);
+    lua_setfield(L, -2, "param_count");
+    lua_pushstring(L, lua_hook_kind_label(entry->return_kind));
+    lua_setfield(L, -2, "return_type");
+    char addr_buf[32];
+    snprintf(addr_buf, sizeof(addr_buf), "0x%llX", (unsigned long long)(uintptr_t)entry->address);
+    lua_pushstring(L, addr_buf);
+    lua_setfield(L, -2, "address");
+    return 1;
+}
+
 static void lua_hook_fill_regs(lua_State* L, const lua_hook_entry& entry, lua_hook_regs& regs) {
     int index = 1;
     if (!entry.is_static) regs.x[0] = lua_hook_read_word(L, index++, value_kind::object);
@@ -574,7 +702,15 @@ static void lua_hook_fill_regs(lua_State* L, const lua_hook_entry& entry, lua_ho
         const lua_hook_param& p = entry.params[i];
         if (index > lua_gettop(L)) luaL_error(L, "hook_original: missing argument %d", i + 1);
         if (!p.in_fp) {
-            regs.x[p.reg] = lua_hook_read_word(L, index, p.kind);
+            if (p.byref) {
+                if (lua_isnumber(L, index)) regs.x[p.reg] = (uint64_t)lua_tonumber(L, index);
+                else {
+                    bool is_ref = false;
+                    regs.x[p.reg] = ref_address_at(L, index, is_ref);
+                }
+            } else {
+                regs.x[p.reg] = lua_hook_read_word(L, index, p.kind);
+            }
         } else if (p.kind == value_kind::float32) {
             regs.d[p.reg] = lua_hook_float_to_reg((float)luaL_checknumber(L, index));
         } else if (p.kind == value_kind::float64) {
@@ -592,6 +728,11 @@ static int l_hook_original(lua_State* L) {
     if (!entry || !g_lua_hook_current_regs) return luaL_error(L, "hook_original can only be used inside a hook callback");
     lua_hook_regs regs = *g_lua_hook_current_regs;
     if (lua_gettop(L) > 0) lua_hook_fill_regs(L, *entry, regs);
+    if (kind_is_vector(entry->return_kind)) {
+        lua_hook_vec_ret ret = lua_hook_call_original<lua_hook_vec_ret>(entry->original, regs);
+        push_vec(L, ret.v, kind_components(entry->return_kind), entry->return_kind == value_kind::color);
+        return 1;
+    }
     switch (entry->return_kind) {
         case value_kind::nothing:
             lua_hook_call_original<void>(entry->original, regs);
@@ -620,6 +761,8 @@ static void register_lua_hooks(lua_State* L) {
         {"hook_list", l_hook_list},
         {"hook_caller", l_hook_caller},
         {"hook_original", l_hook_original},
+        {"set_hook_callback", l_set_hook_callback},
+        {"get_hook", l_get_hook},
         {nullptr, nullptr}
     };
     for (const luaL_Reg* f = functions; f->name; ++f) {

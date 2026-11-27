@@ -5,6 +5,12 @@ project("BNMExplorer")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CMAKE_C_FLAGS_RELEASE "-Os -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables")
+set(CMAKE_CXX_FLAGS_RELEASE "-Os -ffunction-sections -fdata-sections")
+set(CMAKE_C_FLAGS_DEBUG "-Os -g0 -ffunction-sections -fdata-sections")
+set(CMAKE_CXX_FLAGS_DEBUG "-Os -g0 -ffunction-sections -fdata-sections")
+add_link_options(-Wl,--gc-sections -Wl,--icf=all)
+
 option(BNM_ENABLE_HTTPS "Enable HTTPS support in the embedded HTTP server" OFF)
 set(BNM_OPENSSL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/extern/OpenSSL/${ANDROID_ABI}" CACHE PATH "OpenSSL package for the selected Android ABI")
 
@@ -65,10 +71,12 @@ set(LUA_SOURCES
 )
 
 set_source_files_properties(${LUA_SOURCES} PROPERTIES LANGUAGE C)
-set_source_files_properties(${LUA_SOURCES} PROPERTIES COMPILE_FLAGS "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0")
+set_source_files_properties(${LUA_SOURCES} PROPERTIES COMPILE_FLAGS "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -O2 -fomit-frame-pointer")
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
         unity_dispatch.cpp
+        explorer/explorer_html.cpp
+        explorer/lua_docs.cpp
         Include/autodetect/unity_version.cpp
         Include/autodetect/il2cpp_runtime.cpp
         ${LUA_SOURCES}
@@ -125,7 +133,6 @@ function(add_bnm_variant variant unity_version unity_patch)
     target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${bnm_target})
 endfunction()
 
-add_bnm_variant(v56 56 0)
 add_bnm_variant(v171 171 0)
 add_bnm_variant(v172 172 0)
 add_bnm_variant(v181 181 0)

@@ -18,7 +18,6 @@
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, "BNMExplorer", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "BNMExplorer", __VA_ARGS__)
 
-extern "C" JNIEXPORT jint JNICALL bnm_init_v56(JavaVM*, void*);
 extern "C" JNIEXPORT jint JNICALL bnm_init_v171(JavaVM*, void*);
 extern "C" JNIEXPORT jint JNICALL bnm_init_v172(JavaVM*, void*);
 extern "C" JNIEXPORT jint JNICALL bnm_init_v181(JavaVM*, void*);
@@ -56,7 +55,6 @@ namespace {
     static init_function select_initializer(const unity_autodetect::unity_version& version) {
         using unity_autodetect::variant_name_for_version;
         const std::string variant = variant_name_for_version(version);
-        if (variant == "v56") return bnm_init_v56;
         if (variant == "v171") return bnm_init_v171;
         if (variant == "v172") return bnm_init_v172;
         if (variant == "v181") return bnm_init_v181;

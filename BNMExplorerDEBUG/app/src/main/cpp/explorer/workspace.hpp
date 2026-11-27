@@ -23,6 +23,7 @@ namespace BNM_APP_NAMESPACE {
 struct ws_entry {
     std::string path;
     bool is_dir;
+    bool lua;
     uint64_t size;
 };
 
@@ -141,6 +142,10 @@ static std::string ws_sanitize_zip_name(const std::string& input) {
     return out;
 }
 
+static bool ws_is_lua_name(const std::string& name) {
+    return name.size() > 4 && name.compare(name.size() - 4, 4, ".lua") == 0;
+}
+
 static void ws_walk(const std::string& root, const std::string& rel, std::vector<ws_entry>& out) {
     DIR* d = opendir((rel.empty() ? root : root + "/" + rel).c_str());
     if (!d) return;
@@ -157,10 +162,10 @@ static void ws_walk(const std::string& root, const std::string& rel, std::vector
         struct stat st;
         if (stat(full.c_str(), &st) != 0) continue;
         if (S_ISDIR(st.st_mode)) {
-            out.push_back({child_rel, true, 0});
+            out.push_back({child_rel, true, false, 0});
             ws_walk(root, child_rel, out);
-        } else if (S_ISREG(st.st_mode) && name.size() > 4 && name.compare(name.size() - 4, 4, ".lua") == 0) {
-            out.push_back({child_rel, false, (uint64_t)st.st_size});
+        } else if (S_ISREG(st.st_mode)) {
+            out.push_back({child_rel, false, ws_is_lua_name(name), (uint64_t)st.st_size});
         }
     }
 }
@@ -433,7 +438,7 @@ static bool ws_parse_zip(const std::string& data, std::vector<ws_file_data>& out
         pos += 46 + nlen + elen + clen;
         if (raw_name.empty() || raw_name.back() == '/') continue;
         if (raw_name.compare(0, 9, "__MACOSX/") == 0) continue;
-        std::string name = ws_sanitize_path(raw_name, true);
+        std::string name = ws_sanitize_path(raw_name, false);
         if (name.empty() || (flags & 1)) {
             skipped++;
             continue;
@@ -511,7 +516,7 @@ static bool ws_parse_zip(const std::string& data, std::vector<ws_file_data>& out
 static bool ws_replace_with(const std::vector<ws_file_data>& files, std::string& error) {
     std::lock_guard<std::recursive_mutex> lk(g_ws_mtx);
     if (files.empty()) {
-        error = "no .lua files found in archive";
+        error = "no usable files found in archive";
         return false;
     }
     ws_wipe();

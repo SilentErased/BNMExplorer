@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>BNMExplorer Docs</title>
+<meta name="description" content="Documentation for BNMExplorer and LuaBNM - a web based runtime inspector and Lua runtime for IL2CPP Unity games on Android.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#09090b;--bg2:#0e0e11;--bg3:#161619;--card:#101013;
+  --brd:#232326;--brd2:#2e2e32;
+  --fg:#e4e4e7;--fg-dim:#a1a1aa;--fg-mut:#63636b;
+  --acc:#548054;--acc2:#6faf6f;--sel:#1c2b1c;
+  --kw:#b4b4b4;--str:#7fb0b8;--num:#9c9ca4;--fn:#c4894a;--cm:#5c5c64;--gl:#86b886;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Consolas,monospace;
+  --sans:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
+  --rad:8px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;scroll-padding-top:70px;}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.7;}
+a{color:var(--acc2);text-decoration:none;}
+a:hover{text-decoration:underline;}
+.header{position:fixed;top:0;left:0;right:0;height:52px;background:rgba(9,9,11,.85);backdrop-filter:blur(8px);border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:10px;padding:0 16px;z-index:50;}
+.header .brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;letter-spacing:.3px;color:var(--fg);text-transform:uppercase;}
+.header .brand .dot{width:8px;height:8px;border-radius:2px;background:var(--acc);}
+.header .spacer{flex:1;}
+.header a.nav{color:var(--fg-dim);font-size:12px;font-weight:500;padding:5px 10px;border:1px solid var(--brd);border-radius:var(--rad);}
+.header a.nav:hover{color:var(--fg);border-color:var(--brd2);background:var(--bg3);text-decoration:none;}
+.burger{display:none;background:none;border:1px solid var(--brd);border-radius:var(--rad);color:var(--fg);width:34px;height:30px;cursor:pointer;font-size:15px;}
+.sidebar{position:fixed;top:52px;bottom:0;left:0;width:250px;border-right:1px solid var(--brd);overflow-y:auto;padding:18px 12px 40px 16px;background:var(--bg2);z-index:40;}
+.sidebar h4{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--fg-mut);margin:18px 0 6px;font-weight:600;}
+.sidebar h4:first-child{margin-top:0;}
+.sidebar a{display:block;padding:4px 10px;margin:1px 0;border-radius:6px;color:var(--fg-dim);font-size:12.5px;line-height:1.45;border-left:2px solid transparent;}
+.sidebar a:hover{color:var(--fg);background:var(--bg3);text-decoration:none;}
+.sidebar a.active{color:var(--acc2);background:var(--sel);border-left-color:var(--acc);}
+.main{margin-left:250px;padding:80px 32px 90px;}
+.content{max-width:780px;}
+.content h1{font-size:28px;font-weight:700;letter-spacing:-.4px;margin:6px 0 10px;line-height:1.25;}
+.content h2{font-size:20px;font-weight:600;letter-spacing:-.2px;margin:42px 0 12px;padding-top:18px;border-top:1px solid var(--brd);}
+.content h2:first-of-type{border-top:none;}
+.content h3{font-size:15px;font-weight:600;margin:26px 0 8px;color:var(--fg);}
+.content h3 code, .content h2 code{font-family:var(--mono);font-size:.9em;}
+.content p{margin:10px 0;color:var(--fg);}
+.content ul,.content ol{margin:10px 0 10px 22px;}
+.content li{margin:4px 0;}
+.content li::marker{color:var(--fg-mut);}
+.content blockquote{margin:14px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--card);border-radius:0 var(--rad) var(--rad) 0;color:var(--fg-dim);}
+.content blockquote p{margin:4px 0;color:var(--fg-dim);}
+.content hr{border:none;border-top:1px solid var(--brd);margin:30px 0;}
+.content code{font-family:var(--mono);font-size:12.5px;background:var(--bg3);border:1px solid var(--brd);border-radius:5px;padding:1px 5px;color:#d9d9de;}
+.content .sig{display:block;font-family:var(--mono);font-size:13px;color:var(--acc2);background:var(--bg3);border:1px solid var(--brd);border-radius:6px;padding:6px 10px;margin:10px 0;}
+.codeblock{margin:14px 0;border:1px solid var(--brd);border-radius:var(--rad);overflow:hidden;background:#0b0b0d;}
+.codeblock .cb-head{display:flex;align-items:center;justify-content:space-between;padding:5px 10px;border-bottom:1px solid var(--brd);background:var(--bg2);}
+.codeblock .cb-lang{font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--fg-mut);}
+.codeblock .cb-copy{background:none;border:1px solid var(--brd);border-radius:5px;color:var(--fg-dim);font-size:11px;font-family:var(--sans);padding:2px 8px;cursor:pointer;}
+.codeblock .cb-copy:hover{color:var(--fg);border-color:var(--brd2);}
+.codeblock pre{padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:#d4d4d8;tab-size:2;}
+.kw{color:var(--kw);}.st{color:var(--str);}.nm{color:var(--num);}.fn{color:var(--fn);}.cm{color:var(--cm);font-style:italic;}.gl{color:var(--gl);}
+.loading{color:var(--fg-mut);padding:40px 0;}
+.error-box{border:1px solid #5a2b1e;background:#1a0e08;color:#f0c8b0;padding:14px 16px;border-radius:var(--rad);margin:20px 0;}
+.overlay{display:none;position:fixed;inset:52px 0 0 0;background:rgba(0,0,0,.6);z-index:35;}
+@media (max-width:900px){
+  .burger{display:block;}
+  .sidebar{transform:translateX(-105%);transition:transform .18s ease;width:280px;}
+  .sidebar.open{transform:none;box-shadow:6px 0 24px rgba(0,0,0,.6);}
+  .overlay.open{display:block;}
+  .main{margin-left:0;padding:72px 16px 70px;}
+}
+::-webkit-scrollbar{width:9px;height:9px;}
+::-webkit-scrollbar-thumb{background:#333338;border-radius:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+</style>
+</head>
+<body>
+<header class="header">
+  <button class="burger" id="burger" aria-label="Menu">≡</button>
+  <div class="brand"><span class="dot"></span><span>BNMExplorer Docs</span></div>
+  <div class="spacer"></div>
+  <a class="nav" href="llms.txt" target="_blank">llms.txt</a>
+  <a class="nav" href="https://github.com/SilentErased/BNMExplorer" target="_blank" rel="noopener">GitHub</a>
+</header>
+<div class="overlay" id="overlay"></div>
+<nav class="sidebar" id="sidebar"><div class="loading">Loading…</div></nav>
+<main class="main"><div class="content" id="content"><div class="loading">Loading documentation…</div></div></main>
+<script>
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function slug(t){return t.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');}
+const lua_keywords=new Set(['and','break','do','else','elseif','end','false','for','function','goto','if','in','local','nil','not','or','repeat','return','then','true','until','while']);
+function hl_lua(src){
+  let out='',i=0;const n=src.length;
+  const span=(c,t)=>'<span class="'+c+'">'+esc(t)+'</span>';
+  while(i<n){
+    const c=src[i];
+    if(c==='-'&&src[i+1]==='-'){let e=src.indexOf('\n',i);if(e<0)e=n;out+=span('cm',src.slice(i,e));i=e;continue;}
+    if(c==='"'||c==="'"){let j=i+1;while(j<n&&src[j]!==c&&src[j]!=='\n'){if(src[j]==='\\')j++;j++;}j=Math.min(n,j+1);out+=span('st',src.slice(i,j));i=j;continue;}
+    if(/[0-9]/.test(c)||(c==='.'&&/[0-9]/.test(src[i+1]||''))){
+      const m=/^(0[xX][0-9a-fA-F]+|\d*\.?\d+([eE][+-]?\d+)?)/.exec(src.slice(i,i+40));
+      const t=m?m[0]:c;out+=span('nm',t);i+=t.length;continue;
+    }
+    if(/[A-Za-z_]/.test(c)){
+      let j=i+1;while(j<n&&/[A-Za-z0-9_]/.test(src[j]))j++;
+      const w=src.slice(i,j);let k=j;while(k<n&&(src[k]===' '||src[k]==='\t'))k++;
+      const prev=i>0?src[i-1]:'';
+      if(lua_keywords.has(w))out+=span('kw',w);
+      else if(prev!=='.'&&prev!==':'&&(src[k]==='('||src[k]==='"'||src[k]==="'"))out+=span('gl',w);
+      else if(src[k]==='('||(prev===':'&&src[k]==='('))out+=span('fn',w);
+      else out+=esc(w);
+      i=j;continue;
+    }
+    out+=esc(c);i++;
+  }
+  return out;
+}
+function inline(t){
+  return t
+    .replace(/`([^`]+)`/g,(m,c)=>'<code>'+c+'</code>')
+    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function render(md){
+  const lines=md.split('\n');
+  let html='',i=0,para=[];
+  const flush=()=>{if(para.length){html+='<p>'+inline(esc(para.join(' ')))+'</p>';para=[];}};
+  while(i<lines.length){
+    const line=lines[i];
+    if(/^```/.test(line)){
+      flush();
+      const lang=line.slice(3).trim()||'lua';
+      i++;const buf=[];
+      while(i<lines.length&&!/^```/.test(lines[i])){buf.push(lines[i]);i++;}
+      i++;
+      const id='cb'+Math.random().toString(36).slice(2,8);
+      html+='<div class="codeblock"><div class="cb-head"><span class="cb-lang">'+esc(lang)+'</span><button class="cb-copy" data-for="'+id+'">Copy</button></div><pre id="'+id+'">'+(lang==='lua'||lang==='c'||lang==='cpp'||lang==='c++'?hl_lua(buf.join('\n')):esc(buf.join('\n')))+'</pre></div>';
+      continue;
+    }
+    const hm=/^(#{1,3})\s+(.*)$/.exec(line);
+    if(hm){
+      flush();
+      const lvl=hm[1].length,text=inline(esc(hm[2]));
+      if(lvl===1)html+='<h1>'+text+'</h1>';
+      else if(lvl===2)html+='<h2 id="'+slug(hm[2])+'">'+text+'</h2>';
+      else html+='<h3 id="'+slug(hm[2])+'">'+text+'</h3>';
+      i++;continue;
+    }
+    if(/^>\s?/.test(line)){
+      flush();
+      const buf=[];
+      while(i<lines.length&&/^>\s?/.test(lines[i])){buf.push(lines[i].replace(/^>\s?/,''));i++;}
+      html+='<blockquote><p>'+inline(esc(buf.join(' ')))+'</p></blockquote>';
+      continue;
+    }
+    if(/^---+\s*$/.test(line)){flush();html+='<hr>';i++;continue;}
+    if(/^[-*]\s+/.test(line)){
+      flush();
+      let items=[];
+      while(i<lines.length&&/^[-*]\s+/.test(lines[i])){items.push(lines[i].replace(/^[-*]\s+/,''));i++;}
+      html+='<ul>'+items.map(t=>'<li>'+inline(esc(t))+'</li>').join('')+'</ul>';
+      continue;
+    }
+    if(/^\d+\.\s+/.test(line)){
+      flush();
+      let items=[];
+      while(i<lines.length&&/^\d+\.\s+/.test(lines[i])){items.push(lines[i].replace(/^\d+\.\s+/,''));i++;}
+      html+='<ol>'+items.map(t=>'<li>'+inline(esc(t))+'</li>').join('')+'</ol>';
+      continue;
+    }
+    if(/^\s*$/.test(line)){flush();i++;continue;}
+    para.push(line.trim());i++;
+  }
+  flush();
+  return html;
+}
+function build_sidebar(){
+  const heads=document.querySelectorAll('#content h2');
+  const sb=document.getElementById('sidebar');
+  let html='';
+  heads.forEach(h=>{
+    html+='<a href="#'+h.id+'" data-id="'+h.id+'">'+esc(h.textContent)+'</a>';
+  });
+  sb.innerHTML=html||'<div class="loading">No sections</div>';
+  sb.querySelectorAll('a').forEach(a=>{
+    a.addEventListener('click',()=>{
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('overlay').classList.remove('open');
+    });
+  });
+  const links=[...sb.querySelectorAll('a')];
+  const obs=new IntersectionObserver(entries=>{
+    entries.forEach(e=>{
+      if(e.isIntersecting){
+        links.forEach(l=>l.classList.toggle('active',l.dataset.id===e.target.id));
+      }
+    });
+  },{rootMargin:'-70px 0px -70% 0px'});
+  heads.forEach(h=>obs.observe(h));
+}
+async function load(){
+  const box=document.getElementById('content');
+  try{
+    const r=await fetch('llms.txt');
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const md=await r.text();
+    box.innerHTML=render(md);
+    build_sidebar();
+    box.querySelectorAll('.cb-copy').forEach(b=>{
+      b.addEventListener('click',()=>{
+        const pre=document.getElementById(b.dataset.for);
+        navigator.clipboard.writeText(pre.textContent).then(()=>{
+          b.textContent='Copied';
+          setTimeout(()=>{b.textContent='Copy';},1200);
+        });
+      });
+    });
+  }catch(e){
+    box.innerHTML='<div class="error-box"><strong>Could not load llms.txt</strong><br>'+esc(e.message)+'<br><br>Open this page through a web server (GitHub Pages) so the fetch can read llms.txt next to index.html.</div>';
+  }
+}
+document.getElementById('burger').addEventListener('click',()=>{
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('overlay').classList.toggle('open');
+});
+document.getElementById('overlay').addEventListener('click',()=>{
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+});
+load();
+</script>
+</body>
+</html>

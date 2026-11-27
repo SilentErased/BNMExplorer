@@ -70,6 +70,7 @@ static void register_workspace_routes(httplib::Server& svr) {
             nlohmann::json item;
             item["path"] = e.path;
             item["dir"] = e.is_dir;
+            item["lua"] = e.lua;
             item["size"] = e.size;
             list.push_back(item);
         }
@@ -101,12 +102,46 @@ static void register_workspace_routes(httplib::Server& svr) {
             ws_reply_error(res, "invalid request");
             return;
         }
-        std::string path = ws_sanitize_path(ws_json_string(body, "path"), true);
+        std::string path = ws_sanitize_path(ws_json_string(body, "path"), false);
         if (path.empty()) {
-            ws_reply_error(res, "invalid file name: use letters, numbers, . _ - and end with .lua");
+            ws_reply_error(res, "invalid file name: use letters, numbers, . _ -");
             return;
         }
         if (!ws_write_file(path, ws_json_string(body, "content"))) {
+            ws_reply_error(res, "failed to write file (limit is 1 MB)");
+            return;
+        }
+        nlohmann::json j;
+        j["ok"] = true;
+        j["path"] = path;
+        ws_reply(res, j);
+    });
+
+    svr.Get("/api/ws/raw", [](const httplib::Request& req, httplib::Response& res) {
+        std::string path = ws_sanitize_path(req.get_param_value("path"), false);
+        if (path.empty()) {
+            ws_reply_error(res, "invalid file path");
+            return;
+        }
+        std::string content;
+        if (!ws_read_file(path, content)) {
+            ws_reply_error(res, "file not found", 404);
+            return;
+        }
+        std::string name = path;
+        size_t slash = name.rfind('/');
+        if (slash != std::string::npos) name = name.substr(slash + 1);
+        res.set_header("Content-Disposition", "attachment; filename=\"" + name + "\"");
+        res.set_content(content, "application/octet-stream");
+    });
+
+    svr.Post("/api/ws/upload", [](const httplib::Request& req, httplib::Response& res) {
+        std::string path = ws_sanitize_path(req.get_param_value("path"), false);
+        if (path.empty()) {
+            ws_reply_error(res, "invalid file path");
+            return;
+        }
+        if (!ws_write_file(path, req.body)) {
             ws_reply_error(res, "failed to write file (limit is 1 MB)");
             return;
         }

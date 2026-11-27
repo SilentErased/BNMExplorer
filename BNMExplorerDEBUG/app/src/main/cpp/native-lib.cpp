@@ -46,6 +46,8 @@
 #include "explorer/html_page.hpp"
 #include "explorer/luabnm.hpp"
 #include "explorer/workspace_api.hpp"
+#include "explorer/manager.hpp"
+#include "explorer/lua_docs.hpp"
 
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "BNMExplorer", __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "BNMExplorer", __VA_ARGS__)
@@ -2304,6 +2306,10 @@ namespace BNM_APP_NAMESPACE {
             res.set_content(get_explorer_html(n), "text/html");
         });
 
+        svr.Get("/llms.txt",[](const httplib::Request&, httplib::Response& res) {
+            res.set_content(get_llms_txt(), "text/plain; charset=utf-8");
+        });
+
         svr.Get("/api/assemblies",[](const httplib::Request&, httplib::Response& res) {
             res.set_content(assemblies_json(), "application/json");
         });
@@ -3089,6 +3095,7 @@ namespace BNM_APP_NAMESPACE {
         register_freeze_routes(svr);
         register_search_routes(svr);
         register_workspace_routes(svr);
+        register_manager_routes(svr);
 
         svr.listen("0.0.0.0", g_port);
     }
@@ -3146,6 +3153,7 @@ namespace BNM_APP_NAMESPACE {
         LOGI("BNM loaded successfully on the IL2CPP thread; starting BNMExplorer services.");
         hook_debug_log();
         std::thread(start_server).detach();
+        manager_boot();
     }
 
     static void il2cpp_late_load_watchdog() {

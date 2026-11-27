@@ -8,6 +8,7 @@
 #include "lua_hooks.hpp"
 #include "lua_reflect.hpp"
 #include "lua_modules.hpp"
+#include "lua_stdlib.hpp"
 
 #include "autodetect/variant_namespace.hpp"
 #ifndef BNM_APP_NAMESPACE_OPEN
@@ -170,8 +171,11 @@ static void luabnm_openlibs(lua_State* L) {
     register_function(L, "get_time", l_get_time);
     register_function(L, "set_tick_hook", l_set_tick_hook);
     register_function(L, "has_tick_hook", l_has_tick_hook);
+    register_function(L, "main_thread", l_main_thread);
+    register_function(L, "on_game_start", l_on_game_start);
     register_lua_hooks(L);
     register_lua_reflect(L);
+    l_register_stdlib(L);
 
     lua_newtable(L);
     lua_pushcfunction(L, l_scene_get_objects);

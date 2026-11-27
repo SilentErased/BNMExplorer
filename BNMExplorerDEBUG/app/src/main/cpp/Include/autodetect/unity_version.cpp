@@ -69,7 +69,6 @@ static int map_bnm_version(const unity_version& version) {
     const int minor = version.minor;
     const int patch = version.patch;
 
-    if (major == 5 && minor == 6) return 56;
     if (major == 2017 && minor == 1) return 171;
     if (major == 2017 && minor >= 2 && minor <= 4) return 172;
     if (major == 2018 && minor == 1) return 181;
@@ -369,7 +368,6 @@ bool detect_unity_version(const std::string& package_name, const std::string& cu
 
 std::string header_name_for_version(int value) {
     switch (value) {
-        case 56: return "5.6.4f1.h";
         case 171: return "2017.1.h";
         case 172: return "2017.4.h";
         case 181: return "2018.1.h";
@@ -398,7 +396,6 @@ std::string header_name_for_version(int value) {
 std::string variant_name_for_version(const unity_version& version) {
     if (version.bnm_unity_ver == 211) return version.patch >= 24 ? "v211_24" : "v211_pre24";
     switch (version.bnm_unity_ver) {
-        case 56: return "v56";
         case 171: return "v171";
         case 172: return "v172";
         case 181: return "v181";
