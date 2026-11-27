@@ -559,6 +559,8 @@ static void push_ref_closure(lua_State* L, int self_idx, lua_CFunction fn) {
     lua_pushcclosure(L, fn, 1);
 }
 
+static lua_CFunction lua_reflect_sugar(const char* key);
+
 static int l_ref_index(lua_State* L) {
     auto* r = (lua_ref*)luaL_checkudata(L, 1, mt_ref);
     const char* key = luaL_checkstring(L, 2);
@@ -597,6 +599,10 @@ static int l_ref_index(lua_State* L) {
             push_ref_closure(L, 1, s.fn);
             return 1;
         }
+    }
+    if (lua_CFunction extension = lua_reflect_sugar(key)) {
+        push_ref_closure(L, 1, extension);
+        return 1;
     }
     if (!r->klass) return luaL_error(L, "invalid class");
     member_info m = find_member(r->klass, key);

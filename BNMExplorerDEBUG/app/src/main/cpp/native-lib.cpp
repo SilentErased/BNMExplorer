@@ -1,3 +1,12 @@
+/*
+█▀▀▄ █▄  █ █▄ ▄█ █▀▀▀ ▄  ▄ ▄▄▄  █  ▄▄  ▄ ▄▄  ▄▄  ▄ ▄▄ 
+█▀▀▄ █ ▀▄█ █ ▀ █ █▀▀   ██  █  █ █ █  █ █▀   █▀▀▀ █▀   
+▀▀▀  ▀   ▀ ▀   ▀ ▀▀▀▀ ▀  ▀ █▀▀  ▀  ▀▀  ▀     ▀▀▀ ▀    
+                           ▀                          
+    Made by SilentErased, Licensed with GPL3.0
+                 ./native.lib.cpp
+*/
+
 #include <jni.h>
 #include <thread>
 #include <string>
@@ -201,38 +210,6 @@ namespace BNM_APP_NAMESPACE {
             if (!debug_cls.IsValid()) return;
         } catch(...) {}
     }
-
-    struct catcher_arg {
-        std::string type;
-        std::string val;
-    };
-
-    struct catcher_call {
-        double ts;
-        std::string instance;
-        std::vector<catcher_arg> args;
-        std::string ret;
-    };
-
-    struct catcher_entry {
-        std::string id;
-        std::string asm_;
-        std::string ns;
-        std::string cls;
-        std::string method;
-        std::string ret_type;
-        std::vector<std::string> param_types;
-        std::vector<std::string> param_names;
-        std::atomic<bool> active{true};
-        std::mutex calls_mtx;
-        std::vector<catcher_call> calls;
-        void* orig_ptr = nullptr;
-        int slot_idx = -1;
-        static const size_t max_calls = 100;
-    };
-
-    static std::mutex g_catcher_mtx;
-    static std::map<std::string, std::shared_ptr<catcher_entry>> g_catchers;
 
     static std::string logs_json() {
         std::lock_guard<std::mutex> lk(g_log_mtx);
@@ -2308,58 +2285,13 @@ namespace BNM_APP_NAMESPACE {
         return j.str();
     }
 
-#define MAX_CATCHERS 64
-    static std::shared_ptr<catcher_entry>* g_catcher_slots[MAX_CATCHERS] = {};
-    static int g_catcher_slot_count = 0;
-    static std::mutex g_catcher_slot_mtx;
-    static void (*g_catcher_orig_ptrs[MAX_CATCHERS])(Il2CppObject*) = {};
-
-    template<int N>
-    static void catcher_hook(Il2CppObject* self) {
-        std::shared_ptr<catcher_entry>* slot = g_catcher_slots[N];
-        if (slot && *slot && (*slot)->active) {
-            catcher_call call;
-            call.ts = now_seconds();
-            char buf[32]; snprintf(buf, sizeof(buf), "0x%llX", (unsigned long long)(uintptr_t)self);
-            call.instance = buf;
-            if (self && is_valid_pointer(self) && self->klass && is_valid_pointer(self->klass)) {
-                if (is_unity_object_instance(self)) {
-                    try {
-                        Method<BNM::Structures::Mono::String*> gn(Class("UnityEngine","Object").GetMethod("get_name"));
-                        if (gn.IsValid()) { auto* s = gn[self](); if (s) call.instance += " (" + s->str() + ")"; }
-                    } catch(...) {}
-                }
-            }
-            std::lock_guard<std::mutex> lk((*slot)->calls_mtx);
-            if ((*slot)->calls.size() >= catcher_entry::max_calls) (*slot)->calls.erase((*slot)->calls.begin());
-            (*slot)->calls.push_back(std::move(call));
-        }
-        if (g_catcher_orig_ptrs[N]) g_catcher_orig_ptrs[N](self);
-    }
-
-    typedef void(*CatcherHookFn)(Il2CppObject*);
-    static CatcherHookFn g_catcher_hook_fns[MAX_CATCHERS] = {
-            catcher_hook<0>,catcher_hook<1>,catcher_hook<2>,catcher_hook<3>,catcher_hook<4>,
-            catcher_hook<5>,catcher_hook<6>,catcher_hook<7>,catcher_hook<8>,catcher_hook<9>,
-            catcher_hook<10>,catcher_hook<11>,catcher_hook<12>,catcher_hook<13>,catcher_hook<14>,
-            catcher_hook<15>,catcher_hook<16>,catcher_hook<17>,catcher_hook<18>,catcher_hook<19>,
-            catcher_hook<20>,catcher_hook<21>,catcher_hook<22>,catcher_hook<23>,catcher_hook<24>,
-            catcher_hook<25>,catcher_hook<26>,catcher_hook<27>,catcher_hook<28>,catcher_hook<29>,
-            catcher_hook<30>,catcher_hook<31>,catcher_hook<32>,catcher_hook<33>,catcher_hook<34>,
-            catcher_hook<35>,catcher_hook<36>,catcher_hook<37>,catcher_hook<38>,catcher_hook<39>,
-            catcher_hook<40>,catcher_hook<41>,catcher_hook<42>,catcher_hook<43>,catcher_hook<44>,
-            catcher_hook<45>,catcher_hook<46>,catcher_hook<47>,catcher_hook<48>,catcher_hook<49>,
-            catcher_hook<50>,catcher_hook<51>,catcher_hook<52>,catcher_hook<53>,catcher_hook<54>,
-            catcher_hook<55>,catcher_hook<56>,catcher_hook<57>,catcher_hook<58>,catcher_hook<59>,
-            catcher_hook<60>,catcher_hook<61>,catcher_hook<62>,catcher_hook<63>
-    };
-
 
 #define BNM_APP_NAMESPACE_OPEN
 #include "explorer/main_thread.hpp"
 #include "explorer/scene_dump.hpp"
 #include "explorer/calls.hpp"
 #include "explorer/freeze.hpp"
+#include "explorer/search.hpp"
 #undef BNM_APP_NAMESPACE_OPEN
 
     static void start_server() {
@@ -2449,7 +2381,9 @@ namespace BNM_APP_NAMESPACE {
             if (!start_cls.IsValid()) { res.set_content("{}", "application/json"); return; }
 
             std::ostringstream j;
-            j << "{\"addr\":\"" << std::hex << addr << "\",\"name\":\"" << js_esc(cn) << "\",\"fields\":[";
+            const Il2CppClass* start_info = start_cls.GetClass();
+            std::string full_asm = (start_info->image && is_valid_pointer(start_info->image) && is_valid_pointer(start_info->image->name)) ? start_info->image->name : "";
+            j << "{\"addr\":\"" << std::hex << addr << std::dec << "\",\"name\":\"" << js_esc(cn) << "\",\"ns\":\"" << js_esc(ns) << "\",\"asm\":\"" << js_esc(full_asm) << "\",\"fields\":[";
 
             bool first_f = true;
             std::vector<std::string> seen;
@@ -2471,7 +2405,7 @@ namespace BNM_APP_NAMESPACE {
                         std::string ft = type_name(fi->type);
                         bool ok = false;
                         std::string vs = read_field(ft, cur, f_static ? nullptr : (Il2CppObject*)addr, fn, nullptr, f_static, ok, fi->type);
-                        if (ok) { if (!first_f) j << ","; first_f = false; j << "{\"name\":\"" << js_esc(fn) << "\",\"type\":\"" << ft << "\",\"val\":" << vs << ",\"isProp\":false,\"canWrite\":true,\"static\":" << (f_static?"true":"false") << "}"; }
+                        if (ok) { if (!first_f) j << ","; first_f = false; j << "{\"name\":\"" << js_esc(fn) << "\",\"type\":\"" << ft << "\",\"val\":" << vs << ",\"isProp\":false,\"canWrite\":true,\"decl\":\"" << js_esc(cn_) << "\",\"static\":" << (f_static?"true":"false") << "}"; }
                     } catch(...) {}
                 }
 
@@ -2488,7 +2422,7 @@ namespace BNM_APP_NAMESPACE {
                         bool ok = false;
                         MethodBase getter(pi->get);
                         std::string vs = read_field(pt, cur, p_static ? nullptr : (Il2CppObject*)addr, pn, &getter, p_static, ok, pi->get->return_type);
-                        if (ok) { if (!first_f) j << ","; first_f = false; j << "{\"name\":\"" << js_esc(pn) << "\",\"type\":\"" << pt << "\",\"val\":" << vs << ",\"isProp\":true,\"canWrite\":" << (pi->set?"true":"false") << ",\"static\":" << (p_static?"true":"false") << "}"; }
+                        if (ok) { if (!first_f) j << ","; first_f = false; j << "{\"name\":\"" << js_esc(pn) << "\",\"type\":\"" << pt << "\",\"val\":" << vs << ",\"isProp\":true,\"canWrite\":" << (pi->set?"true":"false") << ",\"decl\":\"" << js_esc(cn_) << "\",\"static\":" << (p_static?"true":"false") << "}"; }
                     } catch(...) {}
                 }
             }
@@ -2504,7 +2438,9 @@ namespace BNM_APP_NAMESPACE {
                     if (!m.IsValid() || !mi || !is_valid_pointer(mi) || !mi->name || !is_valid_pointer(mi->name)) continue;
                     if (!first_m) j << ","; first_m = false;
                     std::string ret_t = (mi->return_type && is_valid_pointer(mi->return_type)) ? type_name(mi->return_type) : "?";
-                    j << "{\"name\":\"" << js_esc(mi->name) << "\",\"ret\":\"" << js_esc(ret_t) << "\",\"s\":" << ((mi->flags&0x10)?"true":"false") << ",\"params\":[";
+                    char method_addr[32] = {};
+                    if (mi->methodPointer) snprintf(method_addr, sizeof(method_addr), "%llX", (unsigned long long)((uintptr_t)mi->methodPointer & 0x00FFFFFFFFFFFFFFULL));
+                    j << "{\"name\":\"" << js_esc(mi->name) << "\",\"ret\":\"" << js_esc(ret_t) << "\",\"s\":" << ((mi->flags&0x10)?"true":"false") << ",\"decl\":\"" << js_esc(cn_) << "\",\"addr\":\"" << method_addr << "\",\"params\":[";
                     int pcount = (int)mi->parameters_count;
                     for (int i = 0; i < pcount; i++) {
                         if (i>0) j<<",";
@@ -3119,130 +3055,6 @@ namespace BNM_APP_NAMESPACE {
             res.set_content(j.str(), "application/json");
         });
 
-        svr.Post("/api/catcher/hook",[](const httplib::Request& req, httplib::Response& res) {
-            attach_thread();
-            std::string asm_ = json_val(req.body, "asm");
-            std::string ns   = json_val(req.body, "ns");
-            std::string cls  = json_val(req.body, "cls");
-            std::string meth = json_val(req.body, "method");
-            std::string id   = asm_ + "|" + ns + "|" + cls + "|" + meth;
-            {
-                std::lock_guard<std::mutex> lk(g_catcher_mtx);
-                if (g_catchers.count(id)) {
-                    res.set_content(std::string("{\"ok\":true,\"exists\":true,\"id\":\"") + js_esc(id) + "\"}", "application/json");
-                    return;
-                }
-            }
-            int slot = -1;
-            {
-                std::lock_guard<std::mutex> lk(g_catcher_slot_mtx);
-                for (int i = 0; i < MAX_CATCHERS; i++) {
-                    if (!g_catcher_slots[i]) { slot = i; break; }
-                }
-            }
-            if (slot < 0) { res.set_content("{\"ok\":false,\"error\":\"Maximum active catchers reached\"}", "application/json"); return; }
-            auto entry = std::make_shared<catcher_entry>();
-            entry->id = id; entry->asm_ = asm_; entry->ns = ns; entry->cls = cls; entry->method = meth;
-            entry->slot_idx = slot;
-            Class c(ns.c_str(), cls.c_str(), Image(asm_.c_str()));
-            if (!c.IsValid()) { res.set_content("{\"ok\":false,\"error\":\"Target class not found\"}", "application/json"); return; }
-            MethodBase mb = c.GetMethod(meth.c_str());
-            if (!mb.IsValid()) { res.set_content("{\"ok\":false,\"error\":\"Target method not found\"}", "application/json"); return; }
-            auto* mi = mb.GetInfo();
-            if (!mi || !is_valid_pointer(mi) || !mi->methodPointer) { res.set_content("{\"ok\":false,\"error\":\"No compiled pointer for method\"}", "application/json"); return; }
-            entry->ret_type = (mi->return_type && is_valid_pointer(mi->return_type)) ? type_name(mi->return_type) : "?";
-            int pcount = (int)mi->parameters_count;
-            for (int i = 0; i < pcount; i++) {
-                entry->param_types.push_back(get_param_type_name(mi, i));
-                entry->param_names.push_back(get_param_name(mi, i));
-            }
-            {
-                std::lock_guard<std::mutex> lk(g_catcher_slot_mtx);
-                g_catcher_slots[slot] = new std::shared_ptr<catcher_entry>(entry);
-            }
-            InvokeHook(mb, g_catcher_hook_fns[slot], g_catcher_orig_ptrs[slot]);
-            {
-                std::lock_guard<std::mutex> lk(g_catcher_mtx);
-                g_catchers[id] = entry;
-            }
-            std::ostringstream j;
-            j << "{\"ok\":true,\"id\":\"" << js_esc(id) << "\"}";
-            res.set_content(j.str(), "application/json");
-        });
-
-        svr.Post("/api/catcher/unhook",[](const httplib::Request& req, httplib::Response& res) {
-            std::string id = json_val(req.body, "id");
-            std::lock_guard<std::mutex> lk(g_catcher_mtx);
-            auto it = g_catchers.find(id);
-            if (it != g_catchers.end()) {
-                it->second->active = false;
-                int sl = it->second->slot_idx;
-                if (sl >= 0 && sl < MAX_CATCHERS) {
-                    std::lock_guard<std::mutex> lk2(g_catcher_slot_mtx);
-                    delete g_catcher_slots[sl];
-                    g_catcher_slots[sl] = nullptr;
-                }
-                g_catchers.erase(it);
-            }
-            res.set_content("{\"ok\":true}", "application/json");
-        });
-
-        svr.Post("/api/catcher/clear",[](const httplib::Request& req, httplib::Response& res) {
-            std::string id = json_val(req.body, "id");
-            std::lock_guard<std::mutex> lk(g_catcher_mtx);
-            auto it = g_catchers.find(id);
-            if (it != g_catchers.end()) {
-                std::lock_guard<std::mutex> lk2(it->second->calls_mtx);
-                it->second->calls.clear();
-            }
-            res.set_content("{\"ok\":true}", "application/json");
-        });
-
-        svr.Get("/api/catcher/list",[](const httplib::Request&, httplib::Response& res) {
-            std::lock_guard<std::mutex> lk(g_catcher_mtx);
-            std::ostringstream j;
-            j << "[";
-            bool first = true;
-            for (auto& kv : g_catchers) {
-                auto& e = kv.second;
-                if (!first) j << ","; first = false;
-                std::lock_guard<std::mutex> lk2(e->calls_mtx);
-                j << "{\"id\":\"" << js_esc(e->id) << "\",\"ns\":\"" << js_esc(e->ns) << "\",\"cls\":\"" << js_esc(e->cls)
-                  << "\",\"method\":\"" << js_esc(e->method) << "\",\"ret\":\"" << js_esc(e->ret_type)
-                  << "\",\"count\":" << e->calls.size() << ",\"params\":[";
-                for (size_t i = 0; i < e->param_types.size(); i++) {
-                    if (i>0) j<<",";
-                    j << "{\"t\":\"" << js_esc(e->param_types[i]) << "\",\"n\":\"" << js_esc(e->param_names[i]) << "\"}";
-                }
-                j << "]}";
-            }
-            j << "]";
-            res.set_content(j.str(), "application/json");
-        });
-
-        svr.Get("/api/catcher/calls",[](const httplib::Request& req, httplib::Response& res) {
-            std::string id = req.get_param_value("id");
-            std::lock_guard<std::mutex> lk(g_catcher_mtx);
-            auto it = g_catchers.find(id);
-            if (it == g_catchers.end()) { res.set_content("[]", "application/json"); return; }
-            auto& e = it->second;
-            std::lock_guard<std::mutex> lk2(e->calls_mtx);
-            std::ostringstream j;
-            j << "[";
-            bool first = true;
-            for (auto& c : e->calls) {
-                if (!first) j << ","; first = false;
-                j << "{\"ts\":" << std::fixed << c.ts << ",\"instance\":\"" << js_esc(c.instance) << "\",\"args\":[";
-                for (size_t i = 0; i < c.args.size(); i++) {
-                    if (i>0) j<<",";
-                    j << "{\"t\":\"" << js_esc(c.args[i].type) << "\",\"v\":" << c.args[i].val << "}";
-                }
-                j << "],\"ret\":\"" << js_esc(c.ret) << "\"}";
-            }
-            j << "]";
-            res.set_content(j.str(), "application/json");
-        });
-
         svr.Post("/api/lua/exec",[](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string code = json_val(req.body, "code");
@@ -3275,6 +3087,7 @@ namespace BNM_APP_NAMESPACE {
         register_dump_routes(svr);
         register_calls_routes(svr);
         register_freeze_routes(svr);
+        register_search_routes(svr);
         register_workspace_routes(svr);
 
         svr.listen("0.0.0.0", g_port);

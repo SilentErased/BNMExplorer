@@ -4,7 +4,9 @@
 #include "lua_scene.hpp"
 #include "lua_xr.hpp"
 #include "lua_runtime.hpp"
+#include "reflect.hpp"
 #include "lua_hooks.hpp"
+#include "lua_reflect.hpp"
 #include "lua_modules.hpp"
 
 #include "autodetect/variant_namespace.hpp"
@@ -169,6 +171,7 @@ static void luabnm_openlibs(lua_State* L) {
     register_function(L, "set_tick_hook", l_set_tick_hook);
     register_function(L, "has_tick_hook", l_has_tick_hook);
     register_lua_hooks(L);
+    register_lua_reflect(L);
 
     lua_newtable(L);
     lua_pushcfunction(L, l_scene_get_objects);
@@ -213,6 +216,7 @@ static std::string execute_lua_chunk(const std::string& code, const std::string&
         if (!L) return "Error: failed to create Lua state";
         if (restart) {
             for (auto& t : g_rt.tasks) t.dead = true;
+            lua_hooks_deactivate_all();
             module_cache_reset(L);
         }
         {
@@ -269,12 +273,14 @@ static std::string execute_lua_workspace(const std::string& rel_path) {
 static void stop_lua_bnm() {
     std::lock_guard<std::recursive_mutex> lk(g_rt.mtx);
     for (auto& t : g_rt.tasks) t.dead = true;
+    lua_hooks_deactivate_all();
 }
 
 static void reset_lua_bnm() {
     std::lock_guard<std::recursive_mutex> lk(g_rt.mtx);
     BNM::AttachIl2Cpp();
     g_rt.tasks.clear();
+    lua_hooks_deactivate_all();
     if (g_rt.state) {
         lua_close(g_rt.state);
         g_rt.state = nullptr;

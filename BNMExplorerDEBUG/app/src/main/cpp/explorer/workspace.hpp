@@ -39,6 +39,8 @@ struct ws_zip_info {
 
 static std::recursive_mutex g_ws_mtx;
 static std::string g_ws_base;
+static std::string g_ws_zips;
+static bool g_ws_zips_global = false;
 static bool g_ws_ready = false;
 
 static const size_t ws_max_file_size = 1024 * 1024;
@@ -93,7 +95,7 @@ static bool ws_dir_writable(const std::string& dir) {
 }
 
 static std::string ws_workspace_dir() { return g_ws_base + "/workspace"; }
-static std::string ws_zips_dir() { return g_ws_base + "/zips"; }
+static std::string ws_zips_dir() { return g_ws_zips; }
 
 static std::string ws_sanitize_path(const std::string& input, bool require_lua) {
     std::string normalized = input;
@@ -577,6 +579,41 @@ static void ws_seed_defaults() {
     ws_write_file("movements.lua", "local movements = {}\n\nfunction movements.hello()\n  print(\"movements module loaded\")\nend\n\nreturn movements\n");
 }
 
+static void ws_migrate_zips(const std::string& from, const std::string& to) {
+    if (from == to) return;
+    DIR* d = opendir(from.c_str());
+    if (!d) return;
+    while (dirent* e = readdir(d)) {
+        std::string name = e->d_name;
+        if (name.size() < 5 || name.compare(name.size() - 4, 4, ".zip") != 0) continue;
+        std::string target = to + "/" + name;
+        if (access(target.c_str(), F_OK) == 0) continue;
+        FILE* in = fopen((from + "/" + name).c_str(), "rb");
+        if (!in) continue;
+        std::string data;
+        char buf[65536];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), in)) > 0) data.append(buf, n);
+        fclose(in);
+        ws_write_raw(target, data);
+    }
+    closedir(d);
+}
+
+static void ws_pick_global_zips() {
+    static const char* roots[] = {"/sdcard", "/storage/emulated/0", "/storage/self/primary", "/mnt/sdcard"};
+    for (const char* root : roots) {
+        std::string dir = std::string(root) + "/BNMExplorer/zips";
+        if (ws_dir_writable(dir)) {
+            g_ws_zips = dir;
+            g_ws_zips_global = true;
+            return;
+        }
+    }
+    g_ws_zips = g_ws_base + "/zips";
+    g_ws_zips_global = false;
+}
+
 static void ws_init() {
     std::lock_guard<std::recursive_mutex> lk(g_ws_mtx);
     if (g_ws_ready) return;
@@ -599,7 +636,9 @@ static void ws_init() {
     if (g_ws_base.empty()) g_ws_base = "/data/local/tmp/BNMExplorer";
     bool fresh = !ws_is_dir(ws_workspace_dir());
     ws_make_dirs(ws_workspace_dir());
+    ws_pick_global_zips();
     ws_make_dirs(ws_zips_dir());
+    if (g_ws_zips_global) ws_migrate_zips(g_ws_base + "/zips", g_ws_zips);
     if (fresh) ws_seed_defaults();
     g_ws_ready = true;
 }

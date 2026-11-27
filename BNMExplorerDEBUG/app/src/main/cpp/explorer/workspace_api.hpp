@@ -59,6 +59,7 @@ static void register_workspace_routes(httplib::Server& svr) {
         j["base"] = g_ws_base;
         j["workspace"] = ws_workspace_dir();
         j["zips"] = ws_zips_dir();
+        j["zips_global"] = g_ws_zips_global;
         j["entry"] = "main.lua";
         ws_reply(res, j);
     });

@@ -47,6 +47,15 @@ static inline const Il2CppType* bnm_method_parameter_type(const MethodInfo* meth
 #endif
 }
 
+static inline Il2CppClass* bnm_method_class(const MethodInfo* method) {
+    if (!method) return nullptr;
+#if UNITY_VER <= 172
+    return method->declaring_type;
+#else
+    return method->klass;
+#endif
+}
+
 static inline bool bnm_class_is_value_type(const Il2CppClass* klass) {
     if (!klass) return false;
 #if UNITY_VER < 211

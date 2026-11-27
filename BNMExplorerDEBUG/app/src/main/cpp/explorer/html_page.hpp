@@ -7,8 +7,8 @@ namespace BNM_APP_NAMESPACE {
 #define BNM_APP_NAMESPACE_CLOSE
 #endif
 
-inline std::string get_explorer_html(int asm_count) {
-    std::string html = R"HTML(<!DOCTYPE html>
+    inline std::string get_explorer_html(int asm_count) {
+        std::string html = R"HTML(<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -16,239 +16,393 @@ inline std::string get_explorer_html(int asm_count) {
 <title>BNM Explorer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,700,1,0&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#0f0f0f;--bg2:#161616;--bg3:#1e1e1e;--bg4:#2a2a2a;--card:#191919;
-  --sel:#3a3a3a;--sel-hover:#484848;--sel2:#5a5a5a;--fg:#eeeeee;--fg-dim:#8c8c8c;
-  --kw:#d4d4d4;--type:#34d399;--mth:#fbbf24;--str:#f87171;--num:#a78bfa;
-  --brd:#2e2e2e;--brd-light:rgba(255,255,255,0.08);
-  --red:#262626;--red2:#3d3d3d;--grn:#262626;--grn2:#3d3d3d;
-  --org:#262626;--org2:#3d3d3d;--blu:#262626;--blu2:#3d3d3d;--purp:#262626;
-  --rad-sm:6px;--rad-md:10px;--rad-lg:14px;--rad-xl:18px;
+  --bg:#111111;--bg2:#1e1e1e;--bg3:#2b2b2b;--bg4:#404040;--card:#1e1e1e;
+  --sel:#336647;--sel-hover:#2d4b50;--sel2:#548054;
+  --fg:#d4d4d4;--fg-dim:#969696;--fg-mut:#5c5c5c;
+  --kw:#b4b4b4;--type:#86b886;--mth:#c4894a;--str:#7fb0b8;--num:#969696;
+  --brd:#404040;--brd-light:#2b2b2b;
+  --red:#76410e;--red2:#9b5a1e;--grn:#336647;--grn2:#548054;
+  --org:#76410e;--org2:#9b5a1e;--blu:#2d4b50;--blu2:#3d6870;--purp:#2d4b50;
+  --prop:#86b886;--field:#b4b4b4;--method:#c4894a;
+  --rad-sm:2px;--rad-md:2px;--rad-lg:2px;--rad-xl:3px;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Consolas,'Courier New',monospace;
 }
-*{box-sizing:border-box;margin:0;padding:0;font-family:'Montserrat',system-ui,-apple-system,sans-serif;-webkit-tap-highlight-color:transparent;}
-body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;height:100vh;overflow:hidden;font-size:12px;}
-.g-icon{font-family:'Material Symbols Rounded',sans-serif;font-weight:700;font-style:normal;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center;text-transform:none;letter-spacing:normal;word-wrap:normal;white-space:nowrap;direction:ltr;-webkit-font-smoothing:antialiased;font-variation-settings:'FILL' 1,'wght' 700,'GRAD' 0,'opsz' 24;color:#fff;flex-shrink:0;}
-.toolbar{background:var(--bg2);padding:6px 12px;border-bottom:1px solid var(--brd);display:flex;gap:10px;align-items:center;z-index:20;}
-.brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;letter-spacing:0.3px;color:#fff;}
-.badge{background:var(--bg3);border:1px solid var(--brd);padding:2px 6px;border-radius:var(--rad-sm);font-size:10px;font-weight:600;color:var(--fg-dim);}
-.workspace{display:flex;flex:1;overflow:hidden;padding:6px;gap:6px;position:relative;}
-.sidebar-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);z-index:40;}
-.sidebar{width:290px;background:var(--bg2);border:1px solid var(--brd);border-radius:var(--rad-lg);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;transition:transform .2s ease;}
-.side-hdr{background:var(--bg3);padding:8px 12px;border-bottom:1px solid var(--brd);color:#fff;font-weight:600;display:flex;justify-content:space-between;align-items:center;}
-.tree-wrap{flex:1;overflow-y:auto;padding:6px 4px;}
-::-webkit-scrollbar{width:7px;height:7px;}
-::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:4px;}
-::-webkit-scrollbar-track{background:transparent;}
-.tree-node{list-style:none;padding-left:10px;}
-.tree-nc{display:flex;align-items:center;padding:4px 6px;cursor:pointer;white-space:nowrap;user-select:none;border-radius:var(--rad-sm);margin-bottom:1px;transition:background .12s;}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;-webkit-tap-highlight-color:transparent;}
+body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;height:100vh;overflow:hidden;font-size:11px;line-height:1.35;}
+.i{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;vertical-align:middle;}
+.toolbar{background:var(--bg2);padding:4px 8px;border-bottom:1px solid var(--brd);display:flex;gap:8px;align-items:center;z-index:20;}
+.brand{display:flex;align-items:center;gap:6px;font-weight:600;font-size:11px;letter-spacing:.4px;color:var(--fg);text-transform:uppercase;}
+.badge{background:var(--bg);border:1px solid var(--brd);padding:1px 5px;border-radius:var(--rad-sm);font-size:10px;color:var(--fg-dim);font-family:var(--mono);}
+.workspace{display:flex;flex:1;overflow:hidden;padding:0;gap:0;position:relative;}
+.sidebar-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:40;}
+.sidebar{width:300px;background:var(--bg2);border-right:1px solid var(--brd);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;transition:transform .15s ease;}
+.side-hdr{background:var(--bg2);padding:0;border-bottom:1px solid var(--brd);display:flex;align-items:stretch;}
+.side-tab{flex:1;text-align:center;padding:6px 4px;cursor:pointer;color:var(--fg-dim);font-weight:500;border-bottom:2px solid transparent;user-select:none;display:flex;gap:5px;align-items:center;justify-content:center;}
+.side-tab:hover{color:var(--fg);background:var(--bg3);}
+.side-tab.active{color:var(--fg);border-bottom-color:var(--sel2);background:var(--bg);}
+.side-pane{display:none;flex:1;min-height:0;flex-direction:column;}
+.side-pane.active{display:flex;}
+.side-tools{padding:6px;display:flex;flex-direction:column;gap:5px;border-bottom:1px solid var(--brd);background:var(--bg2);}
+.side-tools .hint{color:var(--fg-mut);font-size:10px;line-height:1.4;}
+.tree-wrap{flex:1;overflow-y:auto;padding:2px 0;background:var(--bg);}
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:0;}
+::-webkit-scrollbar-thumb:hover{background:var(--fg-mut);}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-corner{background:var(--bg);}
+.tree-node{list-style:none;padding-left:12px;}
+.tree-nc{display:flex;align-items:center;padding:2px 6px;cursor:pointer;white-space:nowrap;user-select:none;border-radius:0;height:20px;}
 .tree-nc:hover{background:var(--bg3);}
-.tree-nc.active{background:var(--sel);color:#fff;font-weight:600;}
-.arr{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-right:2px;font-size:10px;color:var(--fg-dim);transition:transform .12s;}
+.tree-nc.active{background:var(--sel);color:#fff;}
+.tree-nc .nm{overflow:hidden;text-overflow:ellipsis;}
+.arr{display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;margin-right:2px;color:var(--fg-mut);transition:transform .1s;}
+.arr .i{width:11px;height:11px;}
 .arr.open{transform:rotate(90deg);}
-.ico{width:16px;height:16px;margin-right:6px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
-.ico svg{width:100%;height:100%;fill:#fff;}
+.ico{width:13px;height:13px;margin-right:5px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--fg-dim);}
+.ico .i{width:13px;height:13px;}
+.ico.t-class{color:var(--type);}
+.ico.t-struct{color:var(--str);}
+.ico.t-enum{color:var(--mth);}
+.ico.t-iface{color:var(--fg-dim);}
 .kids{display:none;}
 .kids.open{display:block;}
-.main-area{flex:1;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--brd);border-radius:var(--rad-lg);background:var(--bg2);}
-.tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--brd);overflow-x:auto;padding:4px 6px 0 6px;gap:3px;}
-.tab{padding:6px 12px;background:transparent;border:1px solid transparent;border-bottom:none;cursor:pointer;border-radius:var(--rad-md) var(--rad-md) 0 0;white-space:nowrap;flex-shrink:0;color:var(--fg-dim);font-weight:600;font-size:11px;display:flex;align-items:center;gap:6px;transition:all .15s;}
-.tab:hover{background:var(--bg3);color:#fff;}
-.tab.active{background:var(--bg3);color:#fff;border-color:var(--brd);border-top:2px solid var(--sel2);}
-.panel{flex:1;overflow:auto;background:var(--bg2);display:none;}
+.cnt{color:var(--fg-mut);margin-left:6px;font-size:10px;font-family:var(--mono);}
+.main-area{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);min-width:0;}
+.tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--brd);overflow-x:auto;padding:0;gap:0;}
+.tab{padding:6px 10px;background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;flex-shrink:0;color:var(--fg-dim);font-weight:500;font-size:11px;display:flex;align-items:center;gap:5px;user-select:none;}
+.tab:hover{background:var(--bg3);color:var(--fg);}
+.tab.active{background:var(--bg);color:var(--fg);border-bottom-color:var(--sel2);}
+.panel{flex:1;overflow:auto;background:var(--bg);display:none;}
 .panel.active{display:flex;flex-direction:column;}
-.scene-mgr{display:flex;flex:1;overflow:hidden;}
-.hier{width:330px;border-right:1px solid var(--brd);display:flex;flex-direction:column;background:var(--bg2);flex-shrink:0;}
-.hier-hdr{background:var(--bg3);padding:8px 10px;border-bottom:1px solid var(--brd);display:flex;flex-direction:column;gap:6px;}
-.hier-title-row{display:flex;justify-content:space-between;align-items:center;}
-.insp{flex:1;overflow-y:auto;background:var(--bg);}
-.insp-hdr{padding:8px 12px;border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:8px;background:var(--bg3);position:sticky;top:0;z-index:10;}
-.insp-hdr .inp{flex:1;font-size:12px;font-weight:700;background:transparent;border:1px solid transparent;border-radius:var(--rad-sm);}
-.insp-hdr .inp:focus{border:1px solid var(--sel2);background:var(--bg2);}
-.comp{border-bottom:1px solid var(--brd);background:var(--bg2);margin-bottom:6px;border-radius:var(--rad-md);overflow:hidden;border:1px solid var(--brd);}
-.comp-hdr{background:var(--bg3);padding:6px 10px;display:flex;align-items:center;cursor:pointer;user-select:none;gap:6px;font-weight:600;}
-.comp-hdr:hover{background:var(--bg4);}
-.comp-body{display:none;padding:2px 0;}
+.scene-mgr{display:flex;flex:1;overflow:hidden;min-height:0;}
+.hier{width:310px;border-right:1px solid var(--brd);display:flex;flex-direction:column;background:var(--bg);flex-shrink:0;min-height:0;}
+.hier-hdr{background:var(--bg2);padding:6px;border-bottom:1px solid var(--brd);display:flex;flex-direction:column;gap:5px;}
+.hier-title-row{display:flex;justify-content:space-between;align-items:center;gap:6px;}
+.hier-title{font-weight:600;color:var(--fg);text-transform:uppercase;font-size:10px;letter-spacing:.5px;}
+.insp{flex:1;overflow-y:auto;background:var(--bg);min-width:0;}
+.insp-hdr{padding:6px 8px;border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:6px;background:var(--bg2);position:sticky;top:0;z-index:10;}
+.insp-hdr .inp{flex:1;font-size:11px;font-weight:600;background:transparent;border:1px solid transparent;}
+.insp-hdr .inp:focus{border-color:var(--sel2);background:var(--bg);}
+.comp{margin:0;border:none;border-bottom:1px solid var(--brd);background:var(--bg);}
+.comp-hdr{background:var(--bg2);padding:4px 8px;display:flex;align-items:center;cursor:pointer;user-select:none;gap:6px;font-weight:600;}
+.comp-hdr:hover{background:var(--bg3);}
+.comp-body{display:none;padding:0;}
 .comp-body.open{display:block;}
-.row{display:flex;align-items:center;border-bottom:1px solid var(--brd-light);min-height:30px;}
+.row{display:flex;align-items:center;border-bottom:1px solid var(--brd-light);min-height:24px;}
 .row:last-child{border-bottom:none;}
-.lbl{width:36%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 8px;color:var(--type);border-right:1px solid var(--brd-light);flex-shrink:0;font-size:11px;font-weight:500;}
-.val{flex:1;display:flex;gap:4px;padding:4px 8px;align-items:center;flex-wrap:wrap;}
-.vl{color:var(--fg-dim);margin-right:2px;font-size:10px;font-weight:600;}
-.code-view{font-family:'JetBrains Mono',Consolas,'Courier New',monospace;font-size:12px;line-height:1.6;padding:12px 16px;white-space:pre;}
+.row:hover{background:var(--bg2);}
+.lbl{width:38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 8px;color:var(--prop);border-right:1px solid var(--brd-light);flex-shrink:0;font-size:11px;font-family:var(--mono);}
+.val{flex:1;display:flex;gap:4px;padding:3px 8px;align-items:center;flex-wrap:wrap;min-width:0;}
+.vl{color:var(--fg-mut);margin-right:2px;font-size:10px;}
+.code-view{font-family:var(--mono);font-size:11px;line-height:1.55;padding:8px 12px;white-space:pre;background:var(--bg);}
 .c-kw{color:var(--kw);font-family:inherit;}
 .c-ty{color:var(--type);font-family:inherit;}
 .c-mt{color:var(--mth);font-family:inherit;}
 .c-st{color:var(--str);font-family:inherit;}
-.c-cm{color:#7a7a7a;font-family:inherit;}
+.c-cm{color:var(--fg-mut);font-family:inherit;}
 .c-nm{color:var(--num);font-family:inherit;}
-.table{width:100%;border-collapse:separate;border-spacing:0;border-radius:var(--rad-md);overflow:hidden;border:1px solid var(--brd);}
-.table th,.table td{padding:6px 10px;border-bottom:1px solid var(--brd);border-right:1px solid var(--brd);text-align:left;}
-.table th{background:var(--bg3);font-weight:600;color:#fff;}
-.table tr:last-child td{border-bottom:none;}
-.table tr td:last-child,.table tr th:last-child{border-right:none;}
-.btn{background:var(--bg3);color:#fff;border:1px solid var(--brd);padding:5px 10px;border-radius:var(--rad-md);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px;outline:none;flex-shrink:0;font-size:11px;font-weight:600;transition:all .12s;}
-.btn:hover{background:var(--bg4);border-color:var(--fg-dim);}
-.btn-red{background:var(--red);border-color:var(--red2);color:#f87171;}
+.c-fn{color:var(--mth);font-family:inherit;}
+.c-gl{color:var(--str);font-family:inherit;}
+.c-op{color:var(--fg-dim);font-family:inherit;}
+.table{width:100%;border-collapse:collapse;border:1px solid var(--brd);}
+.table th,.table td{padding:3px 8px;border:1px solid var(--brd);text-align:left;}
+.table th{background:var(--bg2);font-weight:600;color:var(--fg);}
+.btn{background:var(--bg3);color:var(--fg);border:1px solid var(--brd);padding:0 8px;height:22px;border-radius:var(--rad-sm);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px;outline:none;flex-shrink:0;font-size:11px;font-weight:500;white-space:nowrap;}
+.btn:hover{background:var(--bg4);border-color:var(--fg-mut);}
+.btn:active{background:var(--bg2);}
+.btn-red{background:var(--red);border-color:var(--red2);color:#f0d6b8;}
 .btn-red:hover{background:var(--red2);}
-.btn-grn{background:var(--grn);border-color:var(--grn2);color:#34d399;}
+.btn-grn{background:var(--grn);border-color:var(--grn2);color:#e3f0e6;}
 .btn-grn:hover{background:var(--grn2);}
-.btn-org{background:var(--org);border-color:var(--org2);color:#fbbf24;}
-.btn-org:hover{background:var(--org2);}
-.btn-blu{background:var(--blu);border-color:var(--blu2);color:#eeeeee;}
+.btn-org{background:var(--bg3);border-color:var(--org2);color:var(--mth);}
+.btn-org:hover{background:var(--red);color:#f0d6b8;}
+.btn-blu{background:var(--blu);border-color:var(--blu2);color:#dcecee;}
 .btn-blu:hover{background:var(--blu2);}
-.btn-live{background:var(--bg3);border-color:var(--grn2);color:#34d399;}
-.btn-live.active{background:var(--grn);color:#34d399;}
-.inp{background:var(--bg);border:1px solid var(--brd);color:#fff;padding:5px 8px;border-radius:var(--rad-md);width:100%;outline:none;font-size:11px;transition:border-color .15s;}
-.inp:focus{border-color:var(--sel2);background:var(--bg2);}
-.inp:disabled{opacity:.5;cursor:not-allowed;}
-.srch{background:var(--bg);border:1px solid var(--brd);color:#fff;padding:5px 10px;border-radius:var(--rad-md);width:220px;outline:none;font-size:11px;}
+.btn-live{background:var(--bg3);}
+.btn-live.active{background:var(--grn);border-color:var(--grn2);}
+.btn-ic{padding:0;width:22px;}
+.btn-sm{height:18px;padding:0 6px;font-size:10px;}
+.inp{background:var(--bg);border:1px solid var(--brd);color:var(--fg);padding:0 6px;height:22px;border-radius:var(--rad-sm);width:100%;outline:none;font-size:11px;}
+.inp:focus{border-color:var(--sel2);}
+.inp:disabled{opacity:.45;cursor:not-allowed;}
+.inp::placeholder{color:var(--fg-mut);}
+select.inp{padding:0 4px;}
+.srch{background:var(--bg);border:1px solid var(--brd);color:var(--fg);padding:0 8px;height:22px;border-radius:var(--rad-sm);width:260px;outline:none;font-size:11px;}
 .srch:focus{border-color:var(--sel2);}
-.ctrl-res{font-family:Consolas,monospace;background:var(--bg);padding:4px 8px;border:1px solid var(--brd);border-radius:var(--rad-sm);flex:1;margin-left:6px;min-height:24px;display:flex;align-items:center;font-size:11px;}
-.loop-row{display:flex;align-items:center;gap:6px;margin-bottom:4px;background:var(--card);padding:5px 10px;border:1px solid var(--brd);border-radius:var(--rad-md);}
-.loop-id{font-family:Consolas,monospace;font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--type);}
-.script-hdr{background:#171717;}
-.builtin-hdr{background:#171717;}
-.catcher-entry{border-bottom:1px solid var(--brd);margin-bottom:6px;border-radius:var(--rad-md);overflow:hidden;border:1px solid var(--brd);}
-.catcher-hdr{background:var(--bg3);padding:6px 10px;display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-weight:600;}
-.catcher-hdr:hover{background:var(--bg4);}
-.catcher-body{display:none;max-height:300px;overflow-y:auto;background:var(--bg);}
-.catcher-body.open{display:block;}
-.call-row{padding:5px 10px;border-bottom:1px solid var(--brd-light);font-family:Consolas,monospace;font-size:11px;display:flex;flex-direction:column;gap:2px;}
-.call-row:hover{background:var(--bg3);}
-.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);display:none;z-index:100;align-items:center;justify-content:center;padding:12px;}
+.ctrl-res{font-family:var(--mono);background:var(--bg);padding:2px 6px;border:1px solid var(--brd);border-radius:var(--rad-sm);flex:1;margin-left:4px;min-height:22px;display:flex;align-items:center;font-size:11px;}
+.seg{display:inline-flex;border:1px solid var(--brd);border-radius:var(--rad-sm);overflow:hidden;flex-shrink:0;}
+.seg button{background:var(--bg);color:var(--fg-dim);border:none;border-right:1px solid var(--brd);padding:0 8px;height:20px;cursor:pointer;font-size:10px;font-weight:500;}
+.seg button:last-child{border-right:none;}
+.seg button:hover{color:var(--fg);background:var(--bg3);}
+.seg button.on{background:var(--sel);color:#fff;}
+.chip{display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border:1px solid var(--brd);border-radius:var(--rad-sm);background:var(--bg);color:var(--fg-dim);cursor:pointer;font-size:10px;user-select:none;}
+.chip:hover{color:var(--fg);}
+.chip .sq{width:8px;height:8px;border:1px solid var(--fg-mut);background:transparent;}
+.chip.on{color:var(--fg);}
+.chip.on .sq{background:currentColor;border-color:currentColor;}
+.chip.k-class.on{color:var(--type);}
+.chip.k-method.on{color:var(--method);}
+.chip.k-field.on{color:var(--field);}
+.chip.k-property.on{color:var(--prop);}
+.chips{display:flex;gap:4px;flex-wrap:wrap;}
+.loop-row{display:flex;align-items:center;gap:6px;padding:3px 8px;border-bottom:1px solid var(--brd-light);}
+.loop-row:hover{background:var(--bg2);}
+.loop-id{font-family:var(--mono);font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--type);}
+.script-hdr{background:var(--bg2);}
+.builtin-hdr{background:var(--bg2);}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);display:none;z-index:100;align-items:center;justify-content:center;padding:12px;}
 .modal-overlay.open{display:flex;}
-.modal-box{background:var(--bg2);border:1px solid var(--brd);border-radius:var(--rad-xl);width:460px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 30px rgba(0,0,0,.6);}
-.modal-hdr{padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--brd);display:flex;justify-content:space-between;align-items:center;font-weight:700;}
-.modal-body{flex:1;overflow-y:auto;padding:8px;}
-.add-comp-cat-hdr{padding:6px 10px;background:var(--bg3);border-bottom:1px solid var(--brd);cursor:pointer;font-weight:700;border-radius:var(--rad-sm);margin-bottom:2px;}
-.add-comp-cat-hdr:hover{background:var(--bg4);}
-.add-comp-items{display:none;margin-bottom:4px;}
+.modal-box{background:var(--bg2);border:1px solid var(--brd);border-radius:var(--rad-xl);width:460px;max-width:96vw;max-height:82vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.6);}
+.modal-hdr{padding:6px 10px;background:var(--bg3);border-bottom:1px solid var(--brd);display:flex;justify-content:space-between;align-items:center;font-weight:600;}
+.modal-body{flex:1;overflow-y:auto;padding:4px;background:var(--bg);}
+.add-comp-cat-hdr{padding:4px 8px;background:var(--bg2);border-bottom:1px solid var(--brd);cursor:pointer;font-weight:600;margin-bottom:1px;}
+.add-comp-cat-hdr:hover{background:var(--bg3);}
+.add-comp-items{display:none;margin-bottom:2px;}
 .add-comp-items.open{display:block;}
-.add-comp-item{padding:5px 14px;cursor:pointer;border-bottom:1px solid var(--brd-light);border-radius:var(--rad-sm);}
+.add-comp-item{padding:3px 14px;cursor:pointer;border-bottom:1px solid var(--brd-light);}
 .add-comp-item:hover{background:var(--sel);color:#fff;}
-.coll-row{padding:7px 10px;border-bottom:1px solid var(--brd-light);display:flex;align-items:center;gap:8px;border-radius:var(--rad-md);}
+.coll-row{padding:4px 8px;border-bottom:1px solid var(--brd-light);display:flex;align-items:center;gap:8px;}
 .coll-row.clk{cursor:pointer;}
 .coll-row.clk:hover{background:var(--sel);}
-.coll-idx{min-width:34px;color:var(--fg-dim);font-weight:700;font-family:Consolas,monospace;font-size:10px;word-break:break-all;}
+.coll-idx{min-width:34px;color:var(--fg-mut);font-family:var(--mono);font-size:10px;word-break:break-all;}
 .coll-val{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg);}
-.coll-ty{color:var(--type);font-size:10px;font-weight:600;white-space:nowrap;}
-.inst-item{padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--brd-light);border-radius:var(--rad-md);display:flex;align-items:center;justify-content:space-between;gap:8px;transition:background .12s;}
+.coll-ty{color:var(--type);font-size:10px;white-space:nowrap;}
+.inst-item{padding:4px 8px;cursor:pointer;border-bottom:1px solid var(--brd-light);display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .inst-item:hover{background:var(--sel);color:#fff;}
-.btn-freeze{background:var(--red);border-color:var(--red2);color:#f87171;}
-.btn-freeze.active{background:#b91c1c;border-color:#ef4444;color:#fff;}
-.btn-dump{background:#1d4ed8;border-color:#3b82f6;color:#fff;}
-.btn-dump:hover{background:#2563eb;}
-.hier-btns{display:flex;gap:4px;flex-wrap:wrap;}
-.dump-pre{margin:0;white-space:pre;font-family:Consolas,monospace;font-size:11px;color:var(--fg);overflow:auto;flex:1;padding:8px;background:var(--bg);}
-.calls-row{display:flex;gap:6px;align-items:baseline;padding:3px 10px;border-bottom:1px solid var(--brd-light);font-family:Consolas,monospace;font-size:11px;white-space:nowrap;}
-.calls-row .cr-t{color:var(--fg-dim);min-width:58px;}
+.btn-freeze{background:var(--bg3);border-color:var(--red2);color:var(--mth);}
+.btn-freeze.active{background:var(--red);border-color:var(--red2);color:#f0d6b8;}
+.btn-dump{background:var(--blu);border-color:var(--blu2);color:#dcecee;}
+.btn-dump:hover{background:var(--blu2);}
+.hier-btns{display:flex;gap:3px;flex-wrap:wrap;}
+.dump-pre{margin:0;white-space:pre;font-family:var(--mono);font-size:10px;color:var(--fg);overflow:auto;flex:1;padding:6px;background:var(--bg);}
+.calls-row{display:flex;gap:6px;align-items:baseline;padding:2px 8px;border-bottom:1px solid var(--brd-light);font-family:var(--mono);font-size:10px;white-space:nowrap;}
+.calls-row:hover{background:var(--bg2);}
+.calls-row .cr-t{color:var(--fg-mut);min-width:58px;}
 .calls-row .cr-c{color:var(--type);}
-.calls-row .cr-f{color:var(--mth);font-weight:700;}
-.calls-row .cr-a{color:var(--num);white-space:normal;word-break:break-all;}
-.calls-m{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--brd-light);font-size:11px;}
+.calls-row .cr-f{color:var(--mth);font-weight:600;}
+.calls-row .cr-a{color:var(--str);white-space:normal;word-break:break-all;}
+.calls-row .cr-cb{color:var(--fg-dim);cursor:pointer;margin-left:auto;padding-left:12px;}
+.calls-row .cr-cb:hover{color:var(--fg);text-decoration:underline;}
+.calls-m{display:flex;align-items:center;gap:6px;padding:3px 8px;border-bottom:1px solid var(--brd-light);font-size:11px;}
 .calls-m.ign{opacity:.45;}
-.pulse-dot{width:8px;height:8px;border-radius:50%;background:#d9d9d9;box-shadow:0 0 6px rgba(217,217,217,.5);display:inline-block;margin-right:4px;}
-.pulse-dot.off{background:#7a7a7a;box-shadow:none;}
-.mono-tag{font-size:9px;background:var(--bg3);border:1px solid var(--brd);color:var(--fg-dim);padding:1px 5px;border-radius:var(--rad-sm);margin-left:4px;}
+.callers{padding:4px 8px;background:var(--bg2);border-bottom:1px solid var(--brd);font-family:var(--mono);font-size:10px;display:flex;gap:10px;flex-wrap:wrap;}
+.callers span{cursor:pointer;color:var(--fg-dim);}
+.callers span:hover{color:var(--fg);}
+.callers b{color:var(--mth);font-weight:600;margin-left:3px;}
+.pulse-dot{width:7px;height:7px;border-radius:50%;background:var(--sel2);display:inline-block;margin-right:3px;}
+.pulse-dot.off{background:var(--fg-mut);}
+.mono-tag{font-size:9px;background:var(--bg);border:1px solid var(--brd);color:var(--fg-dim);padding:0 4px;border-radius:var(--rad-sm);margin-left:4px;font-family:var(--mono);}
 .mobile-only{display:none;}
-
+.vlist{flex:1;overflow:auto;position:relative;background:var(--bg);}
+.vlist-sp{position:relative;width:100%;}
+.vrow{position:absolute;left:0;right:0;height:20px;display:flex;align-items:center;white-space:nowrap;cursor:pointer;user-select:none;padding-right:6px;}
+.vrow:hover{background:var(--bg3);}
+.vrow.active{background:var(--sel);color:#fff;}
+.vrow.off{opacity:.45;}
+.vrow .nm{overflow:hidden;text-overflow:ellipsis;}
+.vrow .guide{position:absolute;top:0;bottom:0;width:1px;background:var(--brd-light);}
+.vrow .cn{color:var(--fg-mut);font-size:10px;margin-left:5px;font-family:var(--mono);}
+.sr-row{display:flex;align-items:center;gap:6px;padding:0 8px;height:20px;cursor:pointer;white-space:nowrap;overflow:hidden;}
+.sr-row:hover{background:var(--bg3);}
+.sr-k{width:11px;height:11px;flex-shrink:0;display:inline-block;border:1px solid currentColor;}
+.sr-k.class{color:var(--type);background:var(--type);}
+.sr-k.method{color:var(--method);}
+.sr-k.field{color:var(--field);border-radius:50%;}
+.sr-k.property{color:var(--prop);transform:rotate(45deg) scale(.8);}
+.sr-n{color:var(--fg);overflow:hidden;text-overflow:ellipsis;}
+.sr-t{color:var(--fg-mut);overflow:hidden;text-overflow:ellipsis;font-family:var(--mono);font-size:10px;}
+.sr-c{color:var(--fg-dim);margin-left:auto;padding-left:8px;font-size:10px;overflow:hidden;text-overflow:ellipsis;}
+.mem-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:4px 8px;background:var(--bg2);border-bottom:1px solid var(--brd);}
+.mem-bar .grow{flex:1;min-width:120px;}
+.mem-head{padding:6px 8px;background:var(--bg2);border-bottom:1px solid var(--brd);display:flex;flex-direction:column;gap:3px;}
+.mem-title{font-size:12px;font-weight:600;color:var(--type);font-family:var(--mono);}
+.mem-sub{color:var(--fg-dim);font-size:10px;font-family:var(--mono);}
+.mem-name{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.mem-name .lab{color:var(--fg-dim);}
+.mrow{display:flex;align-items:flex-start;border-bottom:1px solid var(--brd-light);min-height:24px;}
+.mrow:hover{background:var(--bg2);}
+.mrow .mn{width:42%;max-width:380px;min-width:120px;padding:4px 8px;font-family:var(--mono);font-size:11px;word-break:break-all;flex-shrink:0;}
+.mrow .mn .d{color:var(--fg-mut);}
+.mrow .mn.k-property{color:var(--prop);}
+.mrow .mn.k-field{color:var(--field);}
+.mrow .mn.k-method{color:var(--method);}
+.mrow .mv{flex:1;display:flex;flex-direction:column;gap:3px;padding:3px 8px;min-width:0;}
+.mrow .mline{display:flex;gap:4px;align-items:center;flex-wrap:wrap;}
+.mrow .ty{color:var(--str);font-size:10px;font-family:var(--mono);}
+.mrow .ev{color:var(--fg-mut);font-size:10px;font-family:var(--mono);}
+.mrow .ev.ok{color:var(--fg);}
+.mrow input[type=text],.mrow .inp{width:auto;min-width:80px;flex:1;max-width:340px;}
+.mrow .sc{font-size:9px;color:var(--fg-mut);margin-left:4px;}
+.hl-wrap{position:relative;flex:1;min-width:0;min-height:0;background:var(--bg);overflow:hidden;}
+.hl-pre{position:absolute;top:0;left:0;right:0;bottom:0;margin:0;padding:10px;font-family:var(--mono);font-size:12px;line-height:18px;white-space:pre;overflow:hidden;color:var(--fg);pointer-events:none;tab-size:2;}
+.ac-pop{position:absolute;z-index:60;background:var(--bg2);border:1px solid var(--brd);min-width:180px;max-width:420px;max-height:196px;overflow-y:auto;font-family:var(--mono);font-size:11px;box-shadow:0 4px 14px rgba(0,0,0,.6);display:none;}
+.ac-pop.open{display:block;}
+.ac-item{padding:2px 8px;display:flex;gap:8px;cursor:pointer;white-space:nowrap;align-items:baseline;}
+.ac-item.sel{background:var(--sel);color:#fff;}
+.ac-item .k{color:var(--fg-mut);font-size:9px;min-width:28px;}
+.ac-item .d{color:var(--fg-mut);margin-left:auto;padding-left:10px;overflow:hidden;text-overflow:ellipsis;}
+.ac-foot{padding:2px 8px;color:var(--fg-mut);font-size:9px;border-top:1px solid var(--brd);background:var(--bg);position:sticky;bottom:0;}
 @media (max-width:860px){
   .mobile-only{display:inline-flex;}
-  .sidebar{position:fixed;top:44px;left:0;bottom:0;width:82vw;max-width:320px;z-index:50;transform:translateX(-100%);border-radius:0 var(--rad-xl) var(--rad-xl) 0;box-shadow:5px 0 25px rgba(0,0,0,.7);}
+  .sidebar{position:fixed;top:30px;left:0;bottom:0;width:84vw;max-width:340px;z-index:50;transform:translateX(-100%);box-shadow:4px 0 18px rgba(0,0,0,.7);}
   .sidebar.open{transform:translateX(0);}
   .sidebar-overlay.open{display:block;}
   .scene-mgr{flex-direction:column;}
-  .hier{width:100%;border-right:none;border-bottom:1px solid var(--brd);max-height:45vh;}
+  .hier{width:100%;border-right:none;border-bottom:1px solid var(--brd);max-height:42vh;}
   .insp{flex:1;}
   .srch{width:140px;}
-  .btn{padding:6px 10px;}
+  .btn{height:26px;padding:0 10px;}
   .row{flex-direction:column;align-items:stretch;}
-  .lbl{width:100%;border-right:none;border-bottom:1px solid var(--brd-light);padding:4px 8px;}
-  .val{width:100%;padding:4px 8px;}
+  .lbl{width:100%;border-right:none;border-bottom:1px solid var(--brd-light);}
+  .val{width:100%;}
+  .mrow{flex-direction:column;}
+  .mrow .mn{width:100%;max-width:none;padding-bottom:0;}
 }
-
-.ws-bar{background:var(--bg3);padding:6px 10px;border-bottom:1px solid var(--brd);display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
-.ws-title{font-weight:700;margin-right:2px;}
+.ws-bar{background:var(--bg2);padding:4px 8px;border-bottom:1px solid var(--brd);display:flex;gap:5px;align-items:center;flex-wrap:wrap;}
+.ws-title{font-weight:600;margin-right:2px;text-transform:uppercase;font-size:10px;letter-spacing:.5px;}
 .ws-body{display:flex;flex:1;min-height:0;overflow:hidden;position:relative;}
-.ws-side{width:250px;flex-shrink:0;border-right:1px solid var(--brd);display:flex;flex-direction:column;background:var(--bg2);min-height:0;}
+.ws-side{width:230px;flex-shrink:0;border-right:1px solid var(--brd);display:flex;flex-direction:column;background:var(--bg2);min-height:0;}
 .ws-stabs{display:flex;border-bottom:1px solid var(--brd);}
-.ws-stab{flex:1;text-align:center;padding:8px 4px;cursor:pointer;color:var(--fg-dim);font-weight:600;font-size:11px;border-bottom:2px solid transparent;user-select:none;}
-.ws-stab:hover{color:#fff;}
-.ws-stab.active{color:#fff;border-bottom-color:var(--sel2);background:var(--bg3);}
+.ws-stab{flex:1;text-align:center;padding:5px 4px;cursor:pointer;color:var(--fg-dim);font-weight:500;border-bottom:2px solid transparent;user-select:none;}
+.ws-stab:hover{color:var(--fg);}
+.ws-stab.active{color:var(--fg);border-bottom-color:var(--sel2);background:var(--bg);}
 .ws-pane{flex:1;display:flex;flex-direction:column;min-height:0;}
-.ws-actions{display:flex;gap:4px;padding:6px;border-bottom:1px solid var(--brd);align-items:center;}
-.ws-actions .grow{flex:1;font-size:10px;color:var(--fg-dim);font-weight:600;letter-spacing:.4px;text-transform:uppercase;padding-left:4px;}
-.ws-tree{flex:1;overflow-y:auto;padding:4px;}
-.ws-row{display:flex;align-items:center;gap:5px;padding:5px 6px;border-radius:var(--rad-sm);cursor:pointer;white-space:nowrap;user-select:none;}
+.ws-actions{display:flex;gap:2px;padding:3px 6px;border-bottom:1px solid var(--brd);align-items:center;}
+.ws-actions .grow{flex:1;font-size:10px;color:var(--fg-mut);letter-spacing:.5px;text-transform:uppercase;}
+.ws-tree{flex:1;overflow-y:auto;padding:2px 0;background:var(--bg);}
+.ws-row{display:flex;align-items:center;gap:5px;padding:2px 6px;cursor:pointer;white-space:nowrap;user-select:none;height:20px;}
 .ws-row:hover{background:var(--bg3);}
-.ws-row.active{background:var(--sel);color:#fff;font-weight:600;}
+.ws-row.active{background:var(--sel);color:#fff;}
 .ws-row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;}
 .ws-row .acts{display:none;gap:1px;}
 .ws-row:hover .acts,.ws-row.active .acts{display:flex;}
-.ws-ibtn{background:transparent;border:none;color:var(--fg-dim);cursor:pointer;padding:3px;border-radius:var(--rad-sm);display:inline-flex;align-items:center;justify-content:center;}
-.ws-ibtn:hover{background:var(--bg4);color:#fff;}
+.ws-ibtn{background:transparent;border:none;color:var(--fg-dim);cursor:pointer;padding:2px;border-radius:var(--rad-sm);display:inline-flex;align-items:center;justify-content:center;}
+.ws-ibtn:hover{background:var(--bg4);color:var(--fg);}
 .ws-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;}
-.ws-tabs{display:flex;align-items:stretch;background:var(--bg2);border-bottom:1px solid var(--brd);min-height:32px;overflow-x:auto;}
-.ws-tab{display:flex;align-items:center;gap:6px;padding:0 10px;border-right:1px solid var(--brd);cursor:pointer;color:var(--fg-dim);white-space:nowrap;font-size:11px;font-weight:600;border-top:2px solid transparent;}
-.ws-tab:hover{background:var(--bg3);color:#fff;}
-.ws-tab.active{background:var(--bg);color:#fff;border-top-color:var(--sel2);}
-.ws-tab .dirty{width:7px;height:7px;border-radius:50%;background:#d4d4d4;flex-shrink:0;}
+.ws-tabs{display:flex;align-items:stretch;background:var(--bg2);border-bottom:1px solid var(--brd);min-height:26px;overflow-x:auto;}
+.ws-tab{display:flex;align-items:center;gap:6px;padding:0 10px;border-right:1px solid var(--brd);cursor:pointer;color:var(--fg-dim);white-space:nowrap;font-size:11px;border-bottom:2px solid transparent;}
+.ws-tab:hover{background:var(--bg3);color:var(--fg);}
+.ws-tab.active{background:var(--bg);color:var(--fg);border-bottom-color:var(--sel2);}
+.ws-tab .dirty{width:6px;height:6px;border-radius:50%;background:var(--mth);flex-shrink:0;}
 .ws-edit{flex:1;display:flex;min-height:0;position:relative;background:var(--bg);}
-.ws-gutter{margin:0;padding:10px 8px 10px 10px;min-width:44px;text-align:right;color:#5c5c5c;background:var(--bg);border-right:1px solid var(--brd);font-family:'JetBrains Mono',Consolas,'Courier New',monospace;font-size:12px;line-height:18px;overflow:hidden;user-select:none;}
-#lua-editor{flex:1;min-width:0;background:var(--bg);color:var(--fg);border:none;padding:10px;font-family:'JetBrains Mono',Consolas,'Courier New',monospace;font-size:12px;line-height:18px;resize:none;outline:none;tab-size:2;white-space:pre;overflow:auto;}
-.ws-empty{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:var(--fg-dim);background:var(--bg);font-weight:600;}
-.ws-out-hdr{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg3);border-top:1px solid var(--brd);border-bottom:1px solid var(--brd);font-size:10px;color:var(--fg-dim);font-weight:600;letter-spacing:.4px;text-transform:uppercase;}
-#lua-output{height:32%;min-height:90px;background:#0a0a0a;color:#34d399;padding:8px 10px;margin:0;overflow:auto;font-family:'JetBrains Mono',Consolas,'Courier New',monospace;font-size:11px;white-space:pre-wrap;}
-.ws-zip-row{padding:8px;border-bottom:1px solid var(--brd-light);display:flex;flex-direction:column;gap:6px;}
-.ws-zip-name{font-weight:600;word-break:break-all;}
-.ws-zip-meta{font-size:10px;color:var(--fg-dim);}
-.ws-zip-btns{display:flex;gap:4px;}
-.ws-hint{padding:8px;font-size:10px;color:var(--fg-dim);line-height:1.5;word-break:break-all;}
-.ws-dialog-msg{padding:12px 14px;line-height:1.55;color:var(--fg);}
-.ws-dialog-foot{display:flex;justify-content:flex-end;gap:6px;padding:10px 14px;border-top:1px solid var(--brd);}
+.ws-gutter{margin:0;padding:10px 8px 10px 10px;min-width:42px;text-align:right;color:var(--fg-mut);background:var(--bg);border-right:1px solid var(--brd);font-family:var(--mono);font-size:12px;line-height:18px;overflow:hidden;user-select:none;}
+#lua-editor{position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;background:transparent;color:transparent;caret-color:var(--fg);border:none;padding:10px;font-family:var(--mono);font-size:12px;line-height:18px;resize:none;outline:none;tab-size:2;white-space:pre;overflow:auto;}
+#lua-editor::selection{background:rgba(84,128,84,.45);color:transparent;}
+.ws-empty{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:var(--fg-mut);background:var(--bg);z-index:5;}
+.ws-out-hdr{display:flex;align-items:center;gap:6px;padding:2px 8px;background:var(--bg2);border-top:1px solid var(--brd);border-bottom:1px solid var(--brd);font-size:10px;color:var(--fg-dim);letter-spacing:.5px;text-transform:uppercase;}
+#lua-output{height:30%;min-height:80px;background:var(--bg);color:var(--type);padding:6px 10px;margin:0;overflow:auto;font-family:var(--mono);font-size:11px;white-space:pre-wrap;}
+.ws-zip-row{padding:6px 8px;border-bottom:1px solid var(--brd-light);display:flex;flex-direction:column;gap:4px;}
+.ws-zip-name{font-weight:500;word-break:break-all;}
+.ws-zip-meta{font-size:10px;color:var(--fg-mut);}
+.ws-zip-btns{display:flex;gap:3px;}
+.ws-hint{padding:6px 8px;font-size:10px;color:var(--fg-mut);line-height:1.5;word-break:break-all;}
+.ws-dialog-msg{padding:10px 12px;line-height:1.5;color:var(--fg);}
+.ws-dialog-foot{display:flex;justify-content:flex-end;gap:5px;padding:8px 10px;border-top:1px solid var(--brd);}
 @media (max-width:860px){
-  .ws-side{position:absolute;top:0;bottom:0;left:0;width:80%;max-width:300px;z-index:30;transform:translateX(-102%);transition:transform .18s ease;}
-  .ws-side.show{transform:none;box-shadow:0 0 30px rgba(0,0,0,.7);}
+  .ws-side{position:absolute;top:0;bottom:0;left:0;width:80%;max-width:290px;z-index:30;transform:translateX(-102%);transition:transform .15s ease;}
+  .ws-side.show{transform:none;box-shadow:0 0 24px rgba(0,0,0,.7);}
 }
 @media (min-width:861px){.ws-toggle{display:none;}}
 </style>
 </head>
 <body>
+<svg width=0 height=0 style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /></symbol>
+<symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="M4.929 4.929 19.07 19.071" /></symbol>
+<symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /> <path d="m3.3 7 8.7 5 8.7-5" /> <path d="M12 22V12" /></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol>
+<symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></symbol>
+<symbol id="i-circle-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1" /> <circle cx="12" cy="12" r="10" /></symbol>
+<symbol id="i-code-xml" viewBox="0 0 24 24"><path d="m18 16 4-4-4-4" /> <path d="m6 8-4 4 4 4" /> <path d="m14.5 4-5 16" /></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /> <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></symbol>
+<symbol id="i-crosshair" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <line x1="22" x2="18" y1="12" y2="12" /> <line x1="6" x2="2" y1="12" y2="12" /> <line x1="12" x2="12" y1="6" y2="2" /> <line x1="12" x2="12" y1="22" y2="18" /></symbol>
+<symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3" /> <path d="M3 5V19A9 3 0 0 0 21 19V5" /> <path d="M3 12A9 3 0 0 0 21 12" /></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /></symbol>
+<symbol id="i-external-link" viewBox="0 0 24 24"><path d="M15 3h6v6" /> <path d="M10 14 21 3" /> <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /> <circle cx="12" cy="12" r="3" /></symbol>
+<symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" /> <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" /> <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" /> <path d="m2 2 20 20" /></symbol>
+<symbol id="i-file-plus" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /> <path d="M14 2v5a1 1 0 0 0 1 1h5" /> <path d="M9 15h6" /> <path d="M12 18v-6" /></symbol>
+<symbol id="i-file-text" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /> <path d="M14 2v5a1 1 0 0 0 1 1h5" /> <path d="M10 9H8" /> <path d="M16 13H8" /> <path d="M16 17H8" /></symbol>
+<symbol id="i-file-up" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /> <path d="M14 2v5a1 1 0 0 0 1 1h5" /> <path d="M12 12v6" /> <path d="m15 15-3-3-3 3" /></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></symbol>
+<symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" /></symbol>
+<symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M12 10v6" /> <path d="M9 13h6" /> <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></symbol>
+<symbol id="i-gamepad-2" viewBox="0 0 24 24"><line x1="6" x2="10" y1="11" y2="11" /> <line x1="8" x2="8" y1="9" y2="13" /> <line x1="15" x2="15.01" y1="12" y2="12" /> <line x1="18" x2="18.01" y1="10" y2="10" /> <path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" /> <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" /> <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h.01" /> <path d="M3 12h.01" /> <path d="M3 19h.01" /> <path d="M8 5h13" /> <path d="M8 12h13" /> <path d="M8 19h13" /></symbol>
+<symbol id="i-list-x" viewBox="0 0 24 24"><path d="M16 5H3" /> <path d="M11 12H3" /> <path d="M16 19H3" /> <path d="m15.5 9.5 5 5" /> <path d="m20.5 9.5-5 5" /></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /></symbol>
+<symbol id="i-mouse-pointer-click" viewBox="0 0 24 24"><path d="M14 4.1 12 6" /> <path d="m5.1 8-2.9-.8" /> <path d="m6 12-1.9 2" /> <path d="M7.2 2.2 8 5.1" /> <path d="M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z" /></symbol>
+<symbol id="i-network" viewBox="0 0 24 24"><rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /></symbol>
+<symbol id="i-package" viewBox="0 0 24 24"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" /> <path d="M12 22V12" /> <polyline points="3.29 7 12 12 20.71 7" /> <path d="m7.5 4.27 9 5.15" /></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1" /> <rect x="5" y="3" width="5" height="18" rx="1" /></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" /></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14" /> <path d="M12 5v14" /></symbol>
+<symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /> <path d="M21 3v5h-5" /> <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /> <path d="M8 16H3v5" /></symbol>
+<symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4" /> <path d="M3 11v-1a4 4 0 0 1 4-4h14" /> <path d="m7 22-4-4 4-4" /> <path d="M21 13v1a4 4 0 0 1-4 4H3" /></symbol>
+<symbol id="i-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /></symbol>
+<symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /> <path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7" /> <path d="M7 3v4a1 1 0 0 0 1 1h7" /></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /></symbol>
+<symbol id="i-snowflake" viewBox="0 0 24 24"><path d="m10 20-1.25-2.5L6 18" /> <path d="M10 4 8.75 6.5 6 6" /> <path d="m14 20 1.25-2.5L18 18" /> <path d="m14 4 1.25 2.5L18 6" /> <path d="m17 21-3-6h-4" /> <path d="m17 3-3 6 1.5 3" /> <path d="M2 12h6.5L10 9" /> <path d="m20 10-1.5 2 1.5 2" /> <path d="M22 12h-6.5L14 15" /> <path d="m4 10 1.5 2L4 14" /> <path d="m7 21 3-6-1.5-3" /> <path d="m7 3 3 6h4" /></symbol>
+<symbol id="i-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /></symbol>
+<symbol id="i-terminal" viewBox="0 0 24 24"><path d="M12 19h8" /> <path d="m4 17 6-6-6-6" /></symbol>
+<symbol id="i-trash-2" viewBox="0 0 24 24"><path d="M10 11v6" /> <path d="M14 11v6" /> <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /> <path d="M3 6h18" /> <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18" /> <path d="m6 6 12 12" /></symbol>
+</defs></svg>
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggle_sidebar(false)"></div>
 <div class="toolbar">
-  <button class="btn mobile-only" onclick="toggle_sidebar(true)"><span class="g-icon">menu</span></button>
-  <div class="brand">
-    <span class="g-icon" style="font-size:18px;">deployed_code</span>
-    <span>BNM Explorer</span>
-    <span class="badge">)HTML";
-    html += std::to_string(asm_count);
-    html += R"HTML( asms</span>
-  </div>
-  <button class="btn btn-grn" onclick="download_dump()" style="margin-left:auto;"><span class="g-icon">download</span> Dump</button>
-  <input type="text" class="srch" id="gSearch" placeholder="Search classes..." onkeyup="do_search(event)" style="margin-left:6px;">
+  <button class="btn btn-ic mobile-only" onclick="toggle_sidebar(true)"><svg class=i><use href=#i-menu></use></svg></button>
+  <div class="brand"><svg class=i><use href=#i-box></use></svg><span>BNM Explorer</span><span class="badge">)HTML";
+        html += std::to_string(asm_count);
+        html += R"HTML( asm</span></div>
+  <span style="flex:1;"></span>
+  <input type="text" class="srch" id="gSearch" placeholder="Search classes and members, Enter" onkeyup="do_search(event)">
+  <button class="btn" onclick="download_dump()" title="Download dump.cs"><svg class=i><use href=#i-download></use></svg> Dump</button>
 </div>
 <div class="workspace">
   <div class="sidebar" id="app-sidebar">
     <div class="side-hdr">
-      <span>Object Explorer</span>
-      <button class="btn mobile-only" style="padding:2px 6px;" onclick="toggle_sidebar(false)"><span class="g-icon">close</span></button>
+      <div class="side-tab active" data-t="classes" onclick="side_tab('classes')"><svg class=i><use href=#i-package></use></svg> Classes</div>
+      <div class="side-tab" data-t="search" onclick="side_tab('search')"><svg class=i><use href=#i-search></use></svg> Search</div>
+      <button class="btn btn-ic mobile-only" style="height:auto;border:none;" onclick="toggle_sidebar(false)"><svg class=i><use href=#i-x></use></svg></button>
     </div>
-    <div class="tree-wrap" id="tree-root"></div>
+    <div class="side-pane active" id="side-classes">
+      <div class="side-tools">
+        <input class="inp" id="tree-q" placeholder="Assembly-CSharp.dll/Photon/Player" oninput="tree_filter_input()">
+        <div class="hint">Filter by assembly / namespace / class. Each part is a partial match, one part matches any level.</div>
+      </div>
+      <div class="tree-wrap" id="tree-root"></div>
+    </div>
+    <div class="side-pane" id="side-search">
+      <div class="side-tools">
+        <input class="inp" id="msearch-q" placeholder="Name or Class.member" oninput="ms_input()">
+        <input class="inp" id="msearch-path" placeholder="Scope: assembly/namespace/class (optional)" oninput="ms_input()">
+        <div class="chips">
+          <span class="chip k-class on" id="chip-class" onclick="ms_chip('class')"><span class="sq"></span>Class</span>
+          <span class="chip k-method on" id="chip-method" onclick="ms_chip('method')"><span class="sq"></span>Method</span>
+          <span class="chip k-field on" id="chip-field" onclick="ms_chip('field')"><span class="sq"></span>Field</span>
+          <span class="chip k-property on" id="chip-property" onclick="ms_chip('property')"><span class="sq"></span>Property</span>
+        </div>
+        <div class="hint" id="msearch-status"></div>
+      </div>
+      <div class="vlist" id="msearch-list"></div>
+    </div>
   </div>
 <div class="main-area">
     <div class="tabs">
-      <div class="tab active" onclick="switch_tab('scene')" id="tab-scene"><span class="g-icon">account_tree</span> Scene</div>
-      <div class="tab" onclick="switch_tab('code')" id="tab-code"><span class="g-icon">code</span> Inspector</div>
-      <div class="tab" onclick="switch_tab('inst')" id="tab-inst"><span class="g-icon">dataset</span> Instances</div>
-      <div class="tab" onclick="switch_tab('ctrl')" id="tab-ctrl"><span class="g-icon">gamepad</span> Controller</div>
-      <div class="tab" onclick="switch_tab('loops')" id="tab-loops"><span class="g-icon">sync</span> Loops</div>
-      <div class="tab" onclick="switch_tab('catcher')" id="tab-catcher"><span class="g-icon">track_changes</span> Catcher</div>
-      <div class="tab" onclick="switch_tab('calls')" id="tab-calls"><span class="g-icon">call_log</span> Calls</div>
-      <div class="tab" onclick="switch_tab('lua')" id="tab-lua"><span class="g-icon">terminal</span> Console</div>
-      <div class="tab" onclick="switch_tab('ftrack')" id="tab-ftrack"><span class="g-icon">ac_unit</span> FreezeTracker</div>
-      <div class="tab" onclick="switch_tab('docs')" id="tab-docs"><span class="g-icon">description</span> Docs</div>
+      <div class="tab active" onclick="switch_tab('scene')" id="tab-scene"><svg class=i><use href=#i-network></use></svg> Scene</div>
+      <div class="tab" onclick="switch_tab('code')" id="tab-code"><svg class=i><use href=#i-code-xml></use></svg> Class</div>
+      <div class="tab" onclick="switch_tab('inst')" id="tab-inst"><svg class=i><use href=#i-database></use></svg> Instances</div>
+      <div class="tab" onclick="switch_tab('ctrl')" id="tab-ctrl"><svg class=i><use href=#i-gamepad-2></use></svg> Inspector</div>
+      <div class="tab" onclick="switch_tab('calls')" id="tab-calls"><svg class=i><use href=#i-activity></use></svg> Watcher</div>
+      <div class="tab" onclick="switch_tab('loops')" id="tab-loops"><svg class=i><use href=#i-repeat></use></svg> Loops</div>
+      <div class="tab" onclick="switch_tab('lua')" id="tab-lua"><svg class=i><use href=#i-terminal></use></svg> Console</div>
+      <div class="tab" onclick="switch_tab('ftrack')" id="tab-ftrack"><svg class=i><use href=#i-snowflake></use></svg> Freeze</div>
+      <div class="tab" onclick="switch_tab('docs')" id="tab-docs"><svg class=i><use href=#i-file-text></use></svg> Docs</div>
     </div>
 
     <div class="panel" id="pnl-ftrack" style="padding:0;flex-direction:column;">
@@ -256,8 +410,8 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
         <span style="font-weight:700;">FreezeTracker</span>
         <span id="ftrack-status" style="color:var(--fg-dim);font-size:11px;flex:1;">Enable Freeze in Scene to track blocked attempts</span>
         <input class="inp" id="ftrack-filter" placeholder="Filter..." oninput="ftrack_render()" style="width:160px;">
-        <button class="btn" onclick="ftrack_poll()"><span class="g-icon">refresh</span> Refresh</button>
-        <button class="btn btn-red" onclick="ftrack_clear()"><span class="g-icon">clear_all</span> Clear</button>
+        <button class="btn" onclick="ftrack_poll()"><svg class=i><use href=#i-refresh-cw></use></svg> Refresh</button>
+        <button class="btn btn-red" onclick="ftrack_clear()"><svg class=i><use href=#i-list-x></use></svg> Clear</button>
       </div>
       <div id="ftrack-list" style="flex:1;overflow:auto;background:var(--bg);"></div>
     </div>
@@ -267,12 +421,12 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
         <div class="hier">
           <div class="hier-hdr">
             <div class="hier-title-row">
-              <span style="font-weight:700;">Hierarchy</span>
+              <span class="hier-title">Hierarchy</span>
               <div class="hier-btns">
                 <button class="btn btn-live" id="btn-live-sync" onclick="toggle_live_sync()" title="Toggle live auto sync"><span class="pulse-dot off" id="live-dot"></span> Live</button>
-                <button class="btn btn-dump" id="btn-dump" onclick="open_dump()" title="Dump entire scene: GameObjects, components, fields"><span class="g-icon">account_tree</span> Dump entire scene</button>
-                <button class="btn btn-freeze" id="btn-freeze" onclick="toggle_freeze()" title="Block Destroy and scene changes"><span class="g-icon">ac_unit</span> <span id="freeze-lbl">Freeze</span></button>
-                <button class="btn" onclick="load_scene(true)" title="Reload Scene"><span class="g-icon">refresh</span></button>
+                <button class="btn btn-dump" id="btn-dump" onclick="open_dump()" title="Dump entire scene: GameObjects, components, fields"><svg class=i><use href=#i-network></use></svg> Dump</button>
+                <button class="btn btn-freeze" id="btn-freeze" onclick="toggle_freeze()" title="Block Destroy and scene changes"><svg class=i><use href=#i-snowflake></use></svg> <span id="freeze-lbl">Freeze</span></button>
+                <button class="btn" onclick="load_scene(true)" title="Reload Scene"><svg class=i><use href=#i-refresh-cw></use></svg></button>
               </div>
             </div>
             <input type="text" class="inp" id="sceneSearch" placeholder="Filter hierarchy..." oninput="filter_scene()">
@@ -305,7 +459,7 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
               <label style="color:var(--fg-dim);display:block;margin-bottom:3px;font-weight:600;">Address</label>
               <div style="display:flex;gap:4px;">
                 <input class="inp" id="ctrl-addr" value="0x0">
-                <button class="btn btn-blu" onclick="open_ctrl_instance_picker()" title="Pick live instance"><span class="g-icon">touch_app</span></button>
+                <button class="btn btn-blu" onclick="open_ctrl_instance_picker()" title="Pick live instance"><svg class=i><use href=#i-mouse-pointer-click></use></svg></button>
               </div>
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
@@ -315,7 +469,7 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
             <div><label style="color:var(--fg-dim);display:block;margin-bottom:3px;font-weight:600;">Assembly</label><input class="inp" id="ctrl-asm"></div>
             <div><label style="color:var(--fg-dim);display:block;margin-bottom:3px;font-weight:600;">Namespace</label><input class="inp" id="ctrl-ns"></div>
             <div><label style="color:var(--fg-dim);display:block;margin-bottom:3px;font-weight:600;">Class</label><input class="inp" id="ctrl-cls"></div>
-            <button class="btn btn-grn" style="justify-content:center;" onclick="load_controller()"><span class="g-icon">search</span> Inspect Target</button>
+            <button class="btn btn-grn" style="justify-content:center;" onclick="load_controller()"><svg class=i><use href=#i-search></use></svg> Inspect Target</button>
           </div>
         </div>
         <div class="insp" id="ctrl-insp"><div style="padding:30px;text-align:center;color:var(--fg-dim);">Configure target or select from explorer</div></div>
@@ -325,23 +479,23 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
     <div class="panel" id="pnl-loops" style="padding:10px;flex-direction:column;gap:6px;">
       <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg3);padding:8px 12px;border-radius:var(--rad-md);border:1px solid var(--brd);">
         <span style="font-weight:700;">Active Memory Loops</span>
-        <button class="btn btn-red" onclick="remove_all_loops()"><span class="g-icon">delete</span> Stop All</button>
+        <button class="btn btn-red" onclick="remove_all_loops()"><svg class=i><use href=#i-trash-2></use></svg> Stop All</button>
       </div>
       <div id="loops-list" style="margin-top:6px;"></div>
     </div>
 
     <div class="panel" id="pnl-calls" style="padding:0;flex-direction:column;">
       <div style="background:var(--bg3);padding:8px 12px;border-bottom:1px solid var(--brd);display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-        <span style="font-weight:700;">Calls</span>
-        <button class="btn btn-grn" id="calls-scene-btn" onclick="calls_toggle_scene()"><span class="g-icon">visibility</span> Watch scene</button>
+        <span style="font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.5px;">Watcher</span>
+        <button class="btn btn-grn" id="calls-scene-btn" onclick="calls_toggle_scene()"><svg class=i><use href=#i-eye></use></svg> Watch scene</button>
         <label style="display:flex;gap:4px;align-items:center;font-size:11px;" title="Hook components of objects that appear later"><input type="checkbox" id="calls-auto" checked> auto-hook new</label>
         <input class="inp" id="calls-ns" placeholder="Namespace" style="width:110px;">
         <input class="inp" id="calls-cls" placeholder="Class" style="width:130px;">
-        <button class="btn" onclick="calls_watch()"><span class="g-icon">add</span> Watch class</button>
-        <button class="btn btn-org" id="calls-pause-btn" onclick="calls_toggle_pause()"><span class="g-icon">pause</span> Pause</button>
-        <button class="btn" onclick="calls_clear()"><span class="g-icon">clear_all</span> Clear</button>
-        <button class="btn" onclick="calls_show_methods()"><span class="g-icon">list</span> Methods</button>
-        <button class="btn btn-red" onclick="calls_unwatch(0)"><span class="g-icon">delete</span> Unwatch all</button>
+        <button class="btn" onclick="calls_watch()"><svg class=i><use href=#i-plus></use></svg> Watch class</button>
+        <button class="btn btn-org" id="calls-pause-btn" onclick="calls_toggle_pause()"><svg class=i><use href=#i-pause></use></svg> Pause</button>
+        <button class="btn" onclick="calls_clear()"><svg class=i><use href=#i-list-x></use></svg> Clear</button>
+        <button class="btn" onclick="calls_show_methods()"><svg class=i><use href=#i-list></use></svg> Methods</button>
+        <button class="btn btn-red" onclick="calls_unwatch(0)"><svg class=i><use href=#i-trash-2></use></svg> Unwatch all</button>
       </div>
       <div style="padding:4px 12px;border-bottom:1px solid var(--brd);display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;">
         <span id="calls-status" style="color:var(--fg-dim);flex:1;">Nothing watched yet</span>
@@ -349,29 +503,21 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
         <span>Rate/s per method</span><input class="inp" id="calls-limit" type="number" value="100" onchange="calls_config()" style="width:70px;">
         <label style="display:flex;gap:4px;align-items:center;"><input type="checkbox" id="calls-follow" checked> follow</label>
       </div>
+      <div class="callers" id="calls-callers" style="display:none;"></div>
       <div id="calls-log" style="flex:1;overflow:auto;background:var(--bg);"></div>
-    </div>
-
-    <div class="panel" id="pnl-catcher" style="padding:0;flex-direction:column;">
-      <div style="background:var(--bg3);padding:8px 12px;border-bottom:1px solid var(--brd);display:flex;gap:8px;align-items:center;">
-        <span style="font-weight:700;">Method Catcher</span>
-        <span style="opacity:.6;font-size:11px;flex:1;">Intercept and log runtime calls</span>
-        <button class="btn btn-red" onclick="unhook_all()"><span class="g-icon">delete</span> Unhook All</button>
-      </div>
-      <div id="catcher-list" style="flex:1;overflow-y:auto;padding:8px;"></div>
     </div>
 
     <div class="panel" id="pnl-lua" style="padding:0;flex-direction:column;">
       <div class="ws-bar">
-        <button class="btn ws-toggle" onclick="ws_toggle_sidebar()"><span class="g-icon">menu</span></button>
+        <button class="btn ws-toggle" onclick="ws_toggle_sidebar()"><svg class=i><use href=#i-menu></use></svg></button>
         <span class="ws-title">LuaBNM Console</span>
-        <button class="btn btn-grn" onclick="ws_run()"><span class="g-icon">play_arrow</span> Run</button>
-        <button class="btn btn-red" onclick="stop_lua()"><span class="g-icon">stop</span> Stop</button>
-        <button class="btn btn-red" onclick="reset_lua()"><span class="g-icon">restart_alt</span> Reset</button>
+        <button class="btn btn-grn" onclick="ws_run()"><svg class=i><use href=#i-play></use></svg> Run</button>
+        <button class="btn btn-red" onclick="stop_lua()"><svg class=i><use href=#i-square></use></svg> Stop</button>
+        <button class="btn btn-red" onclick="reset_lua()"><svg class=i><use href=#i-rotate-ccw></use></svg> Reset</button>
         <span style="flex:1;"></span>
-        <button class="btn" onclick="ws_import_click()"><span class="g-icon">upload_file</span> Import ZIP</button>
-        <button class="btn" onclick="ws_export()"><span class="g-icon">download</span> Export ZIP</button>
-        <button class="btn btn-blu" onclick="ws_save_device()"><span class="g-icon">save</span> Save On Device</button>
+        <button class="btn" onclick="ws_import_click()"><svg class=i><use href=#i-file-up></use></svg> Import ZIP</button>
+        <button class="btn" onclick="ws_export()"><svg class=i><use href=#i-download></use></svg> Export ZIP</button>
+        <button class="btn btn-blu" onclick="ws_save_device()"><svg class=i><use href=#i-save></use></svg> Save On Device</button>
         <input type="file" id="ws-file-input" accept=".zip,application/zip" style="display:none;" onchange="ws_import_selected(this)">
       </div>
       <div class="ws-body">
@@ -383,16 +529,16 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
           <div class="ws-pane" id="ws-files-pane">
             <div class="ws-actions">
               <span class="grow">Files</span>
-              <button class="ws-ibtn" title="New file" onclick="ws_new_file()"><span class="g-icon">note_add</span></button>
-              <button class="ws-ibtn" title="New folder" onclick="ws_new_folder()"><span class="g-icon">create_new_folder</span></button>
-              <button class="ws-ibtn" title="Refresh" onclick="ws_refresh()"><span class="g-icon">refresh</span></button>
+              <button class="ws-ibtn" title="New file" onclick="ws_new_file()"><svg class=i><use href=#i-file-plus></use></svg></button>
+              <button class="ws-ibtn" title="New folder" onclick="ws_new_folder()"><svg class=i><use href=#i-folder-plus></use></svg></button>
+              <button class="ws-ibtn" title="Refresh" onclick="ws_refresh()"><svg class=i><use href=#i-refresh-cw></use></svg></button>
             </div>
             <div class="ws-tree" id="ws-tree"></div>
           </div>
           <div class="ws-pane" id="ws-zips-pane" style="display:none;">
             <div class="ws-actions">
               <span class="grow">Saved on device</span>
-              <button class="ws-ibtn" title="Refresh" onclick="ws_refresh_zips()"><span class="g-icon">refresh</span></button>
+              <button class="ws-ibtn" title="Refresh" onclick="ws_refresh_zips()"><svg class=i><use href=#i-refresh-cw></use></svg></button>
             </div>
             <div class="ws-tree" id="ws-zip-list"></div>
             <div class="ws-hint" id="ws-zip-path"></div>
@@ -402,12 +548,12 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
           <div class="ws-tabs" id="ws-tabs"></div>
           <div class="ws-edit">
             <pre class="ws-gutter" id="ws-gutter">1</pre>
-            <textarea id="lua-editor" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea>
+            <div class="hl-wrap"><pre class="hl-pre" id="lua-hl"></pre><textarea id="lua-editor" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off"></textarea><div class="ac-pop" id="lua-ac"></div></div>
             <div class="ws-empty" id="ws-empty">Open a file from the workspace</div>
           </div>
           <div class="ws-out-hdr">
             <span style="flex:1;">Output</span>
-            <button class="ws-ibtn" title="Clear output" onclick="clear_console()"><span class="g-icon">delete</span></button>
+            <button class="ws-ibtn" title="Clear output" onclick="clear_console()"><svg class=i><use href=#i-trash-2></use></svg></button>
           </div>
           <pre id="lua-output"></pre>
         </div>
@@ -418,6 +564,22 @@ body{background:var(--bg);color:var(--fg);display:flex;flex-direction:column;hei
       <div style="max-width:760px;margin:0 auto;width:100%;">
         <h2 style="color:var(--kw);margin-bottom:8px;">LuaBNM Documentation</h2>
         <div style="color:var(--fg-dim);margin-bottom:16px;">Embedded Lua scripting runtime for IL2CPP/Unity games via BNM.</div>
+        <h3 style="color:var(--type);margin:16px 0 8px;">Hooking</h3>
+        <div style="color:var(--fg-dim);margin-bottom:8px;line-height:1.6;">hook_method(class, method, selector, fn [, assembly]) hooks a method and returns an id. The selector is a parameter count, a signature string such as "int,string", or nil when the method has one overload. Up to 256 methods can be hooked, float and double arguments and Vector2/3/4 and Color arguments are supported. Hooking the same method again replaces the callback. The callback receives self (instance methods) and then the arguments. Return nil or "original" to run the original, or a value to replace the result. For void methods return true to run the original. Inside a callback, hook_original(...) calls the original (with the current arguments when none are given) and hook_caller() returns the calling function. hook_list() lists hooks with their call counts.</div>
+        <pre style="background:var(--bg);padding:10px;border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local id
+id = hook_method("PlayerHealth", "TakeDamage", "float", function(self, amount)
+  print(hook_caller())
+  return hook_original(self, amount * 0.5)
+end)
+print(hook_list()[1].name, hook_list()[1].calls)</pre>
+        <h3 style="color:var(--type);margin:16px 0 8px;">Reflection</h3>
+        <div style="color:var(--fg-dim);margin-bottom:8px;line-height:1.6;">find_classes(text [, path, limit]), find_methods, find_fields, find_properties and find_members search every assembly. The optional path filters as assembly/namespace/class, for example "Assembly-CSharp.dll/Photon". list_assemblies() and list_classes([path]) enumerate metadata. A class value has list_methods([filter, inherited]), list_fields, list_properties, list_members, list_parents(), list_interfaces(), list_nested(), class_info() and dump(). dump_class(name) returns the whole class as text.</div>
+        <pre style="background:var(--bg);padding:10px;border:1px solid var(--brd);margin-bottom:12px;color:var(--fg);white-space:pre-wrap;">local player = find_class("PlayerHealth")
+for _, m in ipairs(player:list_methods("damage", true)) do
+  print(m.class .. "." .. m.name .. "(" .. m.params .. ") : " .. m.type)
+end
+print(player:dump())</pre>
+
 
                         <h3 style="color:var(--type);margin:16px 0 8px;">Workspace and require</h3>
         <div style="color:var(--fg-dim);margin-bottom:8px;line-height:1.6;">The Console keeps your scripts as .lua files in a workspace stored on the device. Run executes main.lua. Each run first stops tasks started by the previous run and clears the module cache, so edits always apply. Zip files are saved to the zips folder shown in the Device ZIPs tab.</div>
@@ -508,7 +670,7 @@ local same = wrap(found.addr)</pre>
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="modal-hdr">
       <span>Add Component</span>
-      <button class="btn btn-red" style="padding:2px 8px;" onclick="close_add_comp()"><span class="g-icon">close</span></button>
+      <button class="btn btn-red" style="padding:2px 8px;" onclick="close_add_comp()"><svg class=i><use href=#i-x></use></svg></button>
     </div>
     <div style="padding:8px 10px;border-bottom:1px solid var(--brd);"><input class="inp" id="addCompSearch" placeholder="Search component type..." oninput="filter_add_comp()"></div>
     <div class="modal-body" id="addCompCats">Loading...</div>
@@ -520,10 +682,10 @@ local same = wrap(found.addr)</pre>
     <div class="modal-hdr">
       <span id="dumpTitle">Dump entire scene</span>
       <div style="display:flex;gap:4px;">
-        <button class="btn" id="dump-copy" style="padding:2px 8px;display:none;" onclick="dump_copy()"><span class="g-icon">content_copy</span> Copy</button>
-        <button class="btn btn-grn" id="dump-dl" style="padding:2px 8px;display:none;" onclick="dump_download()"><span class="g-icon">download</span> .txt</button>
-        <button class="btn btn-org" id="dump-cancel" style="padding:2px 8px;display:none;" onclick="dump_cancel()"><span class="g-icon">stop</span> Cancel</button>
-        <button class="btn btn-red" style="padding:2px 8px;" onclick="close_dump()"><span class="g-icon">close</span></button>
+        <button class="btn" id="dump-copy" style="padding:2px 8px;display:none;" onclick="dump_copy()"><svg class=i><use href=#i-copy></use></svg> Copy</button>
+        <button class="btn btn-grn" id="dump-dl" style="padding:2px 8px;display:none;" onclick="dump_download()"><svg class=i><use href=#i-download></use></svg> .txt</button>
+        <button class="btn btn-org" id="dump-cancel" style="padding:2px 8px;display:none;" onclick="dump_cancel()"><svg class=i><use href=#i-square></use></svg> Cancel</button>
+        <button class="btn btn-red" style="padding:2px 8px;" onclick="close_dump()"><svg class=i><use href=#i-x></use></svg></button>
       </div>
     </div>
     <div id="dump-progress" style="padding:6px 12px;color:var(--fg-dim);font-size:11px;"></div>
@@ -538,7 +700,7 @@ local same = wrap(found.addr)</pre>
       <div style="display:flex;gap:4px;">
         <button class="btn" style="padding:2px 8px;" onclick="calls_ignore_all(true)">Ignore all</button>
         <button class="btn" style="padding:2px 8px;" onclick="calls_ignore_all(false)">Unignore all</button>
-        <button class="btn btn-red" style="padding:2px 8px;" onclick="document.getElementById('callsMethodsModal').classList.remove('open')"><span class="g-icon">close</span></button>
+        <button class="btn btn-red" style="padding:2px 8px;" onclick="document.getElementById('callsMethodsModal').classList.remove('open')"><svg class=i><use href=#i-x></use></svg></button>
       </div>
     </div>
     <div style="padding:6px 10px;"><input class="inp" id="callsMethodsFilter" placeholder="Filter methods..." oninput="calls_render_methods()"></div>
@@ -550,7 +712,7 @@ local same = wrap(found.addr)</pre>
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="modal-hdr">
       <span id="collTitle">Collection</span>
-      <button class="btn btn-red" style="padding:2px 8px;" onclick="close_collection()"><span class="g-icon">close</span></button>
+      <button class="btn btn-red" style="padding:2px 8px;" onclick="close_collection()"><svg class=i><use href=#i-x></use></svg></button>
     </div>
     <div class="modal-body" id="collList"></div>
   </div>
@@ -560,13 +722,13 @@ local same = wrap(found.addr)</pre>
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="modal-hdr">
       <span id="instPickerTitle">Select Instance</span>
-      <button class="btn btn-red" style="padding:2px 8px;" onclick="close_instance_picker()"><span class="g-icon">close</span></button>
+      <button class="btn btn-red" style="padding:2px 8px;" onclick="close_instance_picker()"><svg class=i><use href=#i-x></use></svg></button>
     </div>
     <div style="padding:8px 10px;border-bottom:1px solid var(--brd);display:flex;flex-direction:column;gap:6px;">
       <input class="inp" id="instPickerSearch" placeholder="Search by name or address..." oninput="filter_instance_picker()">
       <div style="display:flex;gap:6px;">
-        <button class="btn btn-blu" style="flex:1;" onclick="pick_instance('0x0', 'null (0x0)')"><span class="g-icon">block</span> Null (0x0)</button>
-        <button class="btn btn-grn" style="flex:1;" id="btn-pick-selected-go" onclick="pick_current_selected()"><span class="g-icon">deployed_code</span> Current Object</button>
+        <button class="btn btn-blu" style="flex:1;" onclick="pick_instance('0x0', 'null (0x0)')"><svg class=i><use href=#i-ban></use></svg> Null (0x0)</button>
+        <button class="btn btn-grn" style="flex:1;" id="btn-pick-selected-go" onclick="pick_current_selected()"><svg class=i><use href=#i-box></use></svg> Current Object</button>
       </div>
     </div>
     <div class="modal-body" id="instPickerList">Loading instances...</div>
@@ -620,85 +782,13 @@ function toggle_sidebar(open){
   else{sb.classList.remove('open');ov.classList.remove('open');}
 }
 
-async function init(){
-  try{
-    let asms=await fetch('/api/assemblies').then(r=>r.json());
-    document.getElementById('tree-root').innerHTML=asms.map(a=>
-      `<ul class="tree-node"><div class="tree-nc" onclick="toggle_asm(this,'${esc(a)}')"><span class="arr">&#9654;</span><div class="ico" style="color:#fbbf24"><span class="g-icon">inventory_2</span></div><span>${esc(a)}</span></div><div class="kids"></div></ul>`
-    ).join('');
-  }catch(e){}
-  load_scene();
-}
-
-async function toggle_asm(el,asm){
-  let kids=el.nextElementSibling,arr=el.querySelector('.arr');
-  if(kids.classList.contains('open')){kids.classList.remove('open');arr.classList.remove('open');return;}
-  if(!kids.innerHTML.trim()){
-    let classes=await fetch(`/api/classes?a=${encodeURIComponent(asm)}`).then(r=>r.json());
-    let by_ns={};
-    for(let c of classes){let ns=c.ns||'';if(!by_ns[ns])by_ns[ns]=[];by_ns[ns].push(c);}
-    let h='';
-    for(let ns of Object.keys(by_ns).sort()){
-      h+=`<ul class="tree-node"><div class="tree-nc" onclick="toggle_ns(this)"><span class="arr">&#9654;</span><div class="ico" style="color:#f59e0b"><span class="g-icon">folder</span></div><span>${esc(ns||'(global)')}</span></div><div class="kids">`;
-      for(let c of by_ns[ns].sort((a,b)=>a.name.localeCompare(b.name))){
-        let badge=c.t!=='class'?`<span class="mono-tag">${c.t}</span>`:'';
-        h+=`<div class="tree-nc" onclick="load_cls(this,'${esc(asm)}','${esc(c.ns||'')}','${esc(c.name)}')"><span class="arr"></span><div class="ico" style="color:var(--type)"><span class="g-icon">category</span></div><span>${esc(c.name)}</span>${badge}</div>`;
-      }
-      h+=`</div></ul>`;
-    }
-    kids.innerHTML=h;
-  }
-  kids.classList.add('open');arr.classList.add('open');
-}
-
-function toggle_ns(el){el.nextElementSibling.classList.toggle('open');el.querySelector('.arr').classList.toggle('open');}
-
-function format_code(d){
-  let ns=d.ns||'',name=d.name||'',parent=d.parent||'';
-  let t=d.type||'class';
-  let ind=ns?'    ':'';
-  let lines=[];
-  if(ns) lines.push(`<span class="c-kw">namespace</span> <span class="c-ty">${esc(ns)}</span> {`);
-  let decl=`${ind}<span class="c-kw">public ${t}</span> <span class="c-ty">${esc(name)}</span>`;
-  if(parent&&parent!=='Object'&&parent!=='ValueType') decl+=` : <span class="c-ty">${esc(parent)}</span>`;
-  lines.push(decl+' {');
-  for(let f of d.fields||[]){
-    let is_static=f.s?' <span class="c-kw">static</span>':'';
-    lines.push(`${ind}    <span class="c-kw">public</span>${is_static} <span class="c-ty">${esc(f.type)}</span> <span>${esc(f.name)}</span>; <span class="c-cm">// 0x${f.off?Number(f.off).toString(16):'?'}</span>`);
-  }
-  for(let p of d.props||[]){
-    let acc=(p.g?'get; ':'')+(p.s?'set; ':'');
-    lines.push(`${ind}    <span class="c-kw">public</span> <span class="c-ty">${esc(p.type)}</span> <span class="c-mt">${esc(p.name)}</span> { ${acc}}`);
-  }
-  for(let m of d.methods||[]){
-    let prms=(m.params||[]).map(p=>`<span class="c-ty">${esc(p.t)}</span> ${esc(p.n)}`).join(', ');
-    let is_static=m.s?' <span class="c-kw">static</span>':'';
-    let addr=m.addr?` <span class="c-cm">// ${m.addr}</span>`:'';
-    lines.push(`${ind}    <span class="c-kw">public</span>${is_static} <span class="c-ty">${esc(m.ret)}</span> <span class="c-mt">${esc(m.name)}</span>(${prms}) {}${addr}`);
-  }
-  lines.push(ind+'}');
-  if(ns) lines.push('}');
-  return lines.join('\n');
-}
-
-async function load_cls(el,asm,ns,name){
-  document.querySelectorAll('#tree-root .tree-nc').forEach(e=>e.classList.remove('active'));
-  if(el)el.classList.add('active');
-  cur_asm=asm;cur_ns=ns;cur_cls=name;
-  toggle_sidebar(false);
-  let d=await fetch(`/api/class?a=${encodeURIComponent(asm)}&ns=${encodeURIComponent(ns)}&n=${encodeURIComponent(name)}`).then(r=>r.json());
-  document.getElementById('pnl-code').innerHTML=format_code(d);
-  switch_tab('code');
-  load_instances();
-}
-
 async function load_instances(){
   document.getElementById('inst-list').innerHTML='Loading...';
   let d=await fetch(`/api/instances?a=${encodeURIComponent(cur_asm)}&ns=${encodeURIComponent(cur_ns)}&n=${encodeURIComponent(cur_cls)}`).then(r=>r.json());
-  if(d.error){document.getElementById('inst-list').innerHTML=`<div style="color:#f87171;padding:12px;">${esc(d.error)}</div>`;return;}
-  let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span>Found instances: ${d.instances.length}</span><button class="btn btn-blu" onclick="open_static_controller()"><span class="g-icon">gamepad</span> Open Static</button></div><table class="table"><tr><th>Address</th><th>Name</th><th>Action</th></tr>`;
+  if(d.error){document.getElementById('inst-list').innerHTML=`<div style="color:var(--mth);padding:12px;">${esc(d.error)}</div>`;return;}
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span>Found instances: ${d.instances.length}</span><button class="btn btn-blu" onclick="open_static_controller()"><svg class=i><use href=#i-gamepad-2></use></svg> Open Static</button></div><table class="table"><tr><th>Address</th><th>Name</th><th>Action</th></tr>`;
   for(let i of d.instances)
-    h+=`<tr><td><span class="c-nm">0x${i.addr}</span></td><td><span class="c-st">"${esc(i.name)}"</span></td><td><button class="btn btn-blu" onclick="open_controller('0x${i.addr}')"><span class="g-icon">touch_app</span> Open</button></td></tr>`;
+    h+=`<tr><td><span class="c-nm">0x${i.addr}</span></td><td><span class="c-st">"${esc(i.name)}"</span></td><td><button class="btn btn-blu" onclick="open_controller('0x${i.addr}')"><svg class=i><use href=#i-mouse-pointer-click></use></svg> Open</button></td></tr>`;
   document.getElementById('inst-list').innerHTML=h+'</table>';
 }
 
@@ -727,103 +817,6 @@ function open_ctrl_instance_picker(){
   let ns=document.getElementById('ctrl-ns').value||'';
   let full=ns?(ns+'.'+cls):cls;
   open_instance_picker(full||'UnityEngine.GameObject','ctrl-addr');
-}
-
-async function load_controller(){
-  let addr=document.getElementById('ctrl-addr').value;
-  let asm=document.getElementById('ctrl-asm').value;
-  let ns=document.getElementById('ctrl-ns').value;
-  let cls=document.getElementById('ctrl-cls').value;
-  document.getElementById('ctrl-insp').innerHTML='<div style="padding:30px;text-align:center;">Loading target data...</div>';
-  let d=await fetch(`/api/controller/inspect?addr=${addr}&asm=${encodeURIComponent(asm)}&ns=${encodeURIComponent(ns)}&cls=${encodeURIComponent(cls)}`).then(r=>r.json());
-  if(!d.name){document.getElementById('ctrl-insp').innerHTML='<div style="padding:30px;color:#f87171;text-align:center;">Target class or instance not found</div>';return;}
-  let h=`<div class="insp-hdr"><div class="ico" style="color:var(--type)"><span class="g-icon">category</span></div><span class="inp">${esc(d.name)} (${addr})</span></div>`;
-  if(d.fields?.length) h+=build_comp_ui("Fields",false,d.fields,addr,'instance',true,false);
-  if(d.methods?.length){
-    let uid=uid8();
-    h+=`<div class="comp"><div class="comp-hdr" onclick="toggle_comp('${uid}')"><div class="ico"><span class="g-icon">play_arrow</span></div><span>Methods (${d.methods.length})</span></div><div class="comp-body open" id="${uid}">`;
-    d.methods.forEach((m,idx)=>{
-      h+=`<div style="padding:8px 12px;border-bottom:1px solid var(--brd);background:var(--bg2);">`;
-      h+=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">`;
-      h+=`<span style="color:var(--mth);font-weight:700;font-size:12px;">${m.s?'[Static] ':''}${esc(m.name)}</span>`;
-      h+=`<div style="display:flex;gap:6px;align-items:center;">`;
-      h+=`<span style="color:var(--type);font-size:10px;font-weight:600;">${esc(m.ret)}</span>`;
-      h+=`<button class="btn btn-blu" style="padding:2px 7px;" title="Add to Catcher" onclick="catch_method('${esc(asm)}','${esc(ns)}','${esc(cls)}','${esc(m.name)}',this)"><span class="g-icon">track_changes</span></button>`;
-      h+=`</div></div>`;
-      if(m.params?.length){
-        h+=`<div style="padding:6px 8px;background:var(--bg);border-radius:var(--rad-md);border:1px solid var(--brd);margin-bottom:6px;">`;
-        m.params.forEach((p,pidx)=>{
-          let prim=['System.Int32','Int32','int','System.Single','Single','float','System.Double','Double','double','System.Boolean','Boolean','bool','System.String','String','string','System.Int64','Int64','long','System.UInt32','UInt32','uint','System.Byte','Byte','byte','System.Int16','Int16','short','UnityEngine.Vector3','Vector3','UnityEngine.Color','Color','UnityEngine.Vector2','Vector2'];
-          let is_obj=!prim.includes(p.t);
-          let ph=is_obj?'0x... (address)':esc(p.n);
-          let input_id=`marg-input-${idx}-${pidx}`;
-          h+=`<div style="display:flex;gap:6px;margin-bottom:4px;align-items:center;"><span style="width:110px;color:var(--fg-dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;" title="${esc(p.t)}">${esc(p.t)}</span>`;
-          h+=`<input type="text" id="${input_id}" class="inp marg-${idx}" data-type="${esc(p.t)}" placeholder="${ph}" style="flex:1;">`;
-          if(is_obj){
-            h+=`<button class="btn btn-blu" style="padding:4px 8px;" onclick="open_instance_picker('${esc(p.t)}','${input_id}')" title="Select Live Instance"><span class="g-icon">touch_app</span> Select</button>`;
-          }
-          h+=`</div>`;
-        });
-        h+=`</div>`;
-      }
-      h+=`<div style="display:flex;align-items:center;gap:6px;"><button class="btn btn-grn" onclick="exec_method('${esc(asm)}','${esc(ns)}','${esc(cls)}','${esc(m.name)}',${m.s},'${addr}',${idx})"><span class="g-icon">play_arrow</span> Run</button><div class="ctrl-res" id="mres-${idx}"></div></div></div>`;
-    });
-    h+=`</div></div>`;
-  }
-  document.getElementById('ctrl-insp').innerHTML=h;
-}
-
-async function exec_method(asm,ns,cls,m_name,is_static,addr,idx){
-  let args=Array.from(document.querySelectorAll(`.marg-${idx}`)).map(el=>({t:el.getAttribute('data-type'),v:el.value}));
-  let res=document.getElementById(`mres-${idx}`);
-  res.innerHTML='<span style="color:#888;">Invoking...</span>';
-  let d=await fetch('/api/invoke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asm,ns,cls,method:m_name,static:is_static,instance:addr,args})}).then(r=>r.json());
-  let rm=d.ok?String(d.value).match(/ @ 0x([0-9A-Fa-f]+)/):null;
-  let open_btn=rm&&!/^0+$/.test(rm[1])?` <button class="btn" style="padding:1px 6px;" onclick="open_object_ref('${rm[1]}')"><span class="g-icon">open_in_new</span></button>`:'';
-  res.innerHTML=d.ok?`<span style="color:var(--type);font-weight:600;">${esc(d.value)}</span>${open_btn}`:`<span style="color:#f87171;">${esc(d.error)}</span>`;
-}
-
-async function catch_method(asm,ns,cls,method,btn){
-  btn.style.background='#3a3a3a';
-  let d=await fetch('/api/catcher/hook',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asm,ns,cls,method})}).then(r=>r.json());
-  if(d.ok){btn.style.background='#3d3d3d';refresh_catcher();}
-  else{btn.style.background='var(--red)';alert('Hook failed: '+(d.error||'unknown'));}
-}
-
-function switch_tab(id){
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  document.getElementById(`tab-${id}`).classList.add('active');
-  document.getElementById(`pnl-${id}`).classList.add('active');
-  if(id==='loops')refresh_loops_ui();
-  if(id==='catcher')refresh_catcher();
-  if(id==='calls')calls_on_show();
-  if(id==='lua')ws_on_show();
-  if(id==='ftrack')ftrack_on_show();
-}
-async function do_search(e){
-  let q=document.getElementById('gSearch').value.toLowerCase();
-  if(!q){await init();return;}
-  if(e.key!=='Enter')return;
-  if(!all_cls_cache)all_cls_cache=await fetch('/api/allclasses').then(r=>r.json());
-  let res=all_cls_cache.filter(c=>c.name.toLowerCase().includes(q)||c.ns?.toLowerCase().includes(q));
-  let by_asm={};
-  for(let c of res){if(!by_asm[c.a])by_asm[c.a]=[];by_asm[c.a].push(c);}
-  let html='';
-  for(let a of Object.keys(by_asm).sort()){
-    html+=`<ul class="tree-node"><div class="tree-nc" onclick="toggle_asm(this,'${esc(a)}')"><span class="arr open">&#9654;</span><div class="ico" style="color:#fbbf24"><span class="g-icon">inventory_2</span></div><span>${esc(a)}</span></div><div class="kids open">`;
-    let by_ns={};
-    for(let c of by_asm[a]){let ns=c.ns||'';if(!by_ns[ns])by_ns[ns]=[];by_ns[ns].push(c);}
-    for(let ns of Object.keys(by_ns).sort()){
-      html+=`<ul class="tree-node"><div class="tree-nc" onclick="toggle_ns(this)"><span class="arr open">&#9654;</span><div class="ico" style="color:#f59e0b"><span class="g-icon">folder</span></div><span>${esc(ns||'(global)')}</span></div><div class="kids open">`;
-      for(let c of by_ns[ns].sort((x,y)=>x.name.localeCompare(y.name))){
-        html+=`<div class="tree-nc" onclick="load_cls(this,'${esc(a)}','${esc(c.ns||'')}','${esc(c.name)}')"><span class="arr"></span><div class="ico" style="color:var(--type)"><span class="g-icon">category</span></div><span>${esc(c.name)}</span></div>`;
-      }
-      html+=`</div></ul>`;
-    }
-    html+=`</div></ul>`;
-  }
-  document.getElementById('tree-root').innerHTML=html;
 }
 
 async function load_scene(manual_reload){
@@ -903,7 +896,7 @@ async function live_tick(){
       let d=await fetch(`/api/scene/inspect?addr=${inspected_addr}`).then(r=>r.json()).catch(()=>null);
       if(selected_go_addr===inspected_addr&&d&&!d.error){
         if(d.stale||!d.addr){
-          document.getElementById('scene-insp').innerHTML='<div style="padding:30px;text-align:center;color:#f87171;">Object is no longer active in scene</div>';
+          document.getElementById('scene-insp').innerHTML='<div style="padding:30px;text-align:center;color:var(--mth);">Object is no longer active in scene</div>';
           selected_go_addr=null;
           insp_sig='';
         }else if(insp_signature(d)!==insp_sig){
@@ -1051,7 +1044,7 @@ function build_scene_node(n,q,path=new Set()){
   if(!matches&&!child_html)return'';
   let has_kids=(n.children||[]).length>0;
   let is_open=open_scene_nodes.has(n.addr)||(q&&(matches||child_html.length>0));
-  return`<ul class="tree-node"><div class="tree-nc" data-go="${n.addr}" onclick="inspect_go('${n.addr}')"><span class="arr${is_open?' open':''}" onclick="event.stopPropagation();toggle_scene_expand('${n.addr}',this)">${has_kids?'&#9654;':''}</span><div class="ico"><span class="g-icon" style="font-size:15px;">deployed_code</span></div><span style="color:${n.active?'var(--fg)':'#7a7a7a'}">${esc(n.name)}</span></div>${has_kids?`<div class="kids${is_open?' open':''}">${child_html}</div>`:''}</ul>`;
+  return`<ul class="tree-node"><div class="tree-nc" data-go="${n.addr}" onclick="inspect_go('${n.addr}')"><span class="arr${is_open?' open':''}" onclick="event.stopPropagation();toggle_scene_expand('${n.addr}',this)">${has_kids?'<svg class=i><use href=#i-chevron-right></use></svg>':''}</span><div class="ico"><svg class=i><use href=#i-box></use></svg></div><span style="color:${n.active?'var(--fg)':'#7a7a7a'}">${esc(n.name)}</span></div>${has_kids?`<div class="kids${is_open?' open':''}">${child_html}</div>`:''}</ul>`;
 }
 
 async function inspect_go(addr){
@@ -1064,11 +1057,11 @@ async function inspect_go(addr){
   if(requestId!==scene_inspect_generation||selected_go_addr!==addr)return;
   if(d.error){
     let msg=d.error==='timeout'?'Game thread is busy, tap the object again':esc(d.error);
-    document.getElementById('scene-insp').innerHTML=`<div style="padding:30px;text-align:center;color:#fbbf24;">${msg}</div>`;
+    document.getElementById('scene-insp').innerHTML=`<div style="padding:30px;text-align:center;color:var(--mth);">${msg}</div>`;
     return;
   }
   if(d.stale||!d.addr){
-    document.getElementById('scene-insp').innerHTML='<div style="padding:30px;text-align:center;color:#f87171;">Object is no longer active in scene</div>';
+    document.getElementById('scene-insp').innerHTML='<div style="padding:30px;text-align:center;color:var(--mth);">Object is no longer active in scene</div>';
     selected_go_addr=null;
     return;
   }
@@ -1076,10 +1069,10 @@ async function inspect_go(addr){
   insp_sig=insp_signature(d);
   let h=`<div class="insp-hdr">
     <input type="checkbox" ${d.active?'checked':''} onchange="update_go('${d.addr}','gameobject','active',this.checked)">
-    <div class="ico" style="color:var(--type)"><span class="g-icon">deployed_code</span></div>
+    <div class="ico" style="color:var(--type)"><svg class=i><use href=#i-box></use></svg></div>
     <input type="text" class="inp" value="${esc(d.name)}" onchange="update_go('${d.addr}','gameobject','name',this.value)">
-    <button class="btn btn-grn" style="padding:4px 8px;" onclick="open_add_comp('${d.addr}')" title="Add Component"><span class="g-icon">add</span> Add</button>
-    <button class="btn btn-red" style="padding:4px 8px;" onclick="delete_go('${d.addr}')" title="Delete GameObject"><span class="g-icon">delete</span></button>
+    <button class="btn btn-grn" style="padding:4px 8px;" onclick="open_add_comp('${d.addr}')" title="Add Component"><svg class=i><use href=#i-plus></use></svg> Add</button>
+    <button class="btn btn-red" style="padding:4px 8px;" onclick="delete_go('${d.addr}')" title="Delete GameObject"><svg class=i><use href=#i-trash-2></use></svg></button>
   </div>`;
   if(d.transform)
     h+=build_comp_ui("Transform",true,[
@@ -1182,7 +1175,7 @@ async function open_collection(addr){
   document.getElementById('collModal').classList.add('open');
   let d=await fetch(`/api/collection?addr=${addr}`).then(r=>r.json()).catch(()=>null);
   if(!d||!d.ok){
-    document.getElementById('collList').innerHTML=`<div style="padding:20px;text-align:center;color:#f87171;">${esc(d&&d.error?d.error:'Failed to read collection')}</div>`;
+    document.getElementById('collList').innerHTML=`<div style="padding:20px;text-align:center;color:var(--mth);">${esc(d&&d.error?d.error:'Failed to read collection')}</div>`;
     return;
   }
   document.getElementById('collTitle').innerText=`${d.kind} (${d.count})${d.elem?' of '+d.elem:''}`;
@@ -1193,7 +1186,7 @@ async function open_collection(addr){
   let h='';
   for(let it of d.items){
     let clk=it.addr?` clk" onclick="open_object_ref('${it.addr}')`:'';
-    h+=`<div class="coll-row${clk}"><span class="coll-idx">${esc(it.i)}</span><span class="coll-val" title="${esc(it.v)}">${esc(it.v)}</span><span class="coll-ty">${esc(it.t)}</span>${it.addr?'<span class="g-icon">chevron_right</span>':''}</div>`;
+    h+=`<div class="coll-row${clk}"><span class="coll-idx">${esc(it.i)}</span><span class="coll-val" title="${esc(it.v)}">${esc(it.v)}</span><span class="coll-ty">${esc(it.t)}</span>${it.addr?'<svg class=i><use href=#i-chevron-right></use></svg>':''}</div>`;
   }
   if(d.truncated)h+='<div style="padding:10px;text-align:center;color:var(--fg-dim);">Showing first 300 items</div>';
   document.getElementById('collList').innerHTML=h;
@@ -1221,7 +1214,7 @@ function open_instance_picker(type_name,target_input_id){
     picker_raw_instances=d.instances||[];
     render_instance_picker('');
   }).catch(()=>{
-    document.getElementById('instPickerList').innerHTML='<div style="padding:20px;text-align:center;color:#f87171;">Failed to query instances</div>';
+    document.getElementById('instPickerList').innerHTML='<div style="padding:20px;text-align:center;color:var(--mth);">Failed to query instances</div>';
   });
 }
 
@@ -1242,7 +1235,7 @@ function render_instance_picker(q){
         <span style="font-weight:700;color:var(--fg);">${esc(i.name||'Instance')}</span>
         <span style="font-size:10px;color:var(--num);font-family:Consolas,monospace;">${addr_hex}</span>
       </div>
-      <button class="btn btn-blu" style="padding:2px 8px;"><span class="g-icon">check</span> Select</button>
+      <button class="btn btn-blu" style="padding:2px 8px;"><svg class=i><use href=#i-check></use></svg> Select</button>
     </div>`;
   }
   document.getElementById('instPickerList').innerHTML=h;
@@ -1282,11 +1275,11 @@ function build_script_comp_ui(sc,go_addr){
   let col=is_builtin?'var(--kw)':'var(--mth)';
   let h=`<div class="comp"><div class="comp-hdr ${hdr_cls}" onclick="toggle_comp('${uid}')">
     <input type="checkbox" data-comp="${sc.addr}" ${sc.enabled?'checked':''} onchange="update_script_enabled('${sc.addr}',this.checked)" onclick="event.stopPropagation()" style="margin-right:4px;">
-    <div class="ico" style="color:${col}"><span class="g-icon">${is_builtin?'widgets':'terminal'}</span></div>
+    <div class="ico" style="color:${col}">${ic(is_builtin?'layers':'terminal')}</div>
     <span style="color:${col}">${esc(sc.name)}</span>
     ${sc.ns?`<span style="opacity:.6;font-size:10px;margin-left:4px;">${esc(sc.ns)}</span>`:''}
     <span style="opacity:.4;font-size:10px;margin-left:auto;margin-right:4px;">0x${sc.addr}</span>
-    <button class="btn btn-red" style="padding:2px 6px;" title="Remove" onclick="event.stopPropagation();remove_component('${sc.addr}','${go_addr}')"><span class="g-icon">delete</span></button>
+    <button class="btn btn-red" style="padding:2px 6px;" title="Remove" onclick="event.stopPropagation();remove_component('${sc.addr}','${go_addr}')"><svg class=i><use href=#i-trash-2></use></svg></button>
   </div><div class="comp-body open" id="${uid}">`;
   if(!sc.fields?.length){
     h+=`<div class="row" style="padding:6px 10px;color:var(--fg-dim);">No readable fields</div>`;
@@ -1302,7 +1295,7 @@ function build_script_comp_ui(sc,go_addr){
 
 function build_comp_ui(title,is_trans,rows,target_addr,target_type,with_save,is_script){
   let uid=uid8();
-  let h=`<div class="comp"><div class="comp-hdr" onclick="toggle_comp('${uid}')"><div class="ico"><span class="g-icon">widgets</span></div><span>${esc(title)}</span></div><div class="comp-body open" id="${uid}">`;
+  let h=`<div class="comp"><div class="comp-hdr" onclick="toggle_comp('${uid}')"><div class="ico"><svg class=i><use href=#i-layers></use></svg></div><span>${esc(title)}</span></div><div class="comp-body open" id="${uid}">`;
   for(let r of rows){
     let da=`data-addr="${target_addr}" data-tt="${target_type}" data-pid="${r.id||r.name||r.lbl}" data-vt="${r.type}" data-ip="${r.isProp?'true':'false'}" data-static="${r.static?'true':'false'}"`;
     let dis=r.canWrite===false?'disabled':'';
@@ -1313,7 +1306,7 @@ function build_comp_ui(title,is_trans,rows,target_addr,target_type,with_save,is_
 
 function build_field_row(r,da,dis,with_save,show_loop){
   let label=r.name||r.lbl||r.id||'';
-  let prefix=r.static?'<span style="color:#e8a0ff;font-size:10px;font-weight:700;">[Static] </span>':'';
+  let prefix=r.static?'<span style="color:var(--str);font-size:10px;font-weight:700;">[Static] </span>':'';
   let h=`<div class="row"><div class="lbl" title="${esc(label)}">${prefix}${esc(label)}</div><div class="val">`;
   let t=r.type||'';
   let row_id='frow-'+uid8();
@@ -1350,16 +1343,16 @@ function build_field_row(r,da,dis,with_save,show_loop){
     h+=`<input id="${row_id}" class="inp sing-input" ${is_num?'type="number" step="any"':'type="text"'} value="${esc(sv)}" ${da} ${dis} style="min-width:80px;flex:1;">`;
     let oref=is_obj?parse_obj_ref(r.val):null;
     if(oref){
-      h+=`<button class="btn" style="padding:2px 7px;" onclick="open_object_ref('${oref.addr}')" title="${oref.is_list?'Show items':'Open object'}"><span class="g-icon">${oref.is_list?'format_list_bulleted':'open_in_new'}</span></button>`;
+      h+=`<button class="btn" style="padding:2px 7px;" onclick="open_object_ref('${oref.addr}')" title="${oref.is_list?'Show items':'Open object'}">${ic(oref.is_list?'list':'external-link')}</button>`;
     }
     if(is_obj&&!dis){
-      h+=`<button class="btn btn-blu" style="padding:2px 7px;" onclick="open_instance_picker('${esc(t)}','${row_id}')" title="Pick live instance"><span class="g-icon">touch_app</span></button>`;
+      h+=`<button class="btn btn-blu" style="padding:2px 7px;" onclick="open_instance_picker('${esc(t)}','${row_id}')" title="Pick live instance"><svg class=i><use href=#i-mouse-pointer-click></use></svg></button>`;
     }
   }
 
   if(with_save&&!dis){
-    h+=`<button class="btn btn-grn" style="margin-left:4px;padding:3px 8px;" onclick="handle_save(this)"><span class="g-icon">check</span> Set</button>`;
-    if(show_loop)h+=`<button class="btn btn-org" style="padding:3px 7px;" title="Loop" onclick="prompt_loop(this)"><span class="g-icon">sync</span></button>`;
+    h+=`<button class="btn btn-grn" style="margin-left:4px;padding:3px 8px;" onclick="handle_save(this)"><svg class=i><use href=#i-check></use></svg> Set</button>`;
+    if(show_loop)h+=`<button class="btn btn-org" style="padding:3px 7px;" title="Loop" onclick="prompt_loop(this)"><svg class=i><use href=#i-repeat></use></svg></button>`;
   }
   h+=`</div></div>`;
   return h;
@@ -1468,11 +1461,11 @@ async function refresh_loops_ui(){
   if(!loops.length){el.innerHTML='<div style="color:var(--fg-dim);padding:14px;text-align:center;">No active memory loops</div>';return;}
   el.innerHTML=loops.map(lp=>`
     <div class="loop-row">
-      <span class="g-icon" style="color:var(--mth);font-size:14px;">sync</span>
+      <svg class=i><use href=#i-repeat></use></svg>
       <span class="loop-id">${esc(lp.cls)}.${esc(lp.name)}</span>
       <span style="color:var(--str);font-family:Consolas,monospace;font-size:11px;">${esc(lp.val)}</span>
       <span style="color:var(--fg-dim);font-size:10px;">${lp.interval}ms</span>
-      <button class="btn btn-red" style="padding:2px 8px;" onclick="remove_loop('${esc(lp.id)}',this)"><span class="g-icon">close</span> Stop</button>
+      <button class="btn btn-red" style="padding:2px 8px;" onclick="remove_loop('${esc(lp.id)}',this)"><svg class=i><use href=#i-x></use></svg> Stop</button>
     </div>`).join('');
 }
 
@@ -1484,67 +1477,6 @@ async function remove_loop(id,btn){
 async function remove_all_loops(){
   await fetch('/api/loop/removeall',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   refresh_loops_ui();
-}
-
-async function refresh_catcher(){
-  let entries=await fetch('/api/catcher/list').then(r=>r.json());
-  let el=document.getElementById('catcher-list');
-  if(!entries.length){el.innerHTML='<div style="padding:30px;text-align:center;color:var(--fg-dim);">No hooked methods yet.<br>Go to Controller or Scene, click the <span style="color:var(--kw);">&#9679;</span> target button on any method.</div>';return;}
-  el.innerHTML=entries.map(e=>{
-    let uid=uid8();
-    let path=`${e.ns?e.ns+'.':''}${e.cls}.${e.method}`;
-    let params=e.params?.map(p=>`<span style="color:var(--type)">${esc(p.t)}</span> ${esc(p.n)}`).join(', ')||'';
-    return`<div class="catcher-entry">
-      <div class="catcher-hdr" onclick="load_catcher_calls('${esc(e.id)}','${uid}')">
-        <div class="ico" style="color:var(--blu2)"><span class="g-icon">track_changes</span></div>
-        <span style="color:var(--mth);font-weight:700;">${esc(path)}</span>
-        <span style="color:var(--type);font-size:10px;margin-left:4px;">(${params})</span>
-        <span style="color:var(--str);font-size:10px;margin-left:4px;">-&gt; ${esc(e.ret)}</span>
-        <span style="background:var(--bg);padding:1px 6px;margin-left:auto;border-radius:var(--rad-sm);font-weight:600;">${e.count}</span>
-        <button class="btn btn-red" style="padding:2px 8px;margin-left:6px;" onclick="event.stopPropagation();unhook_catcher('${esc(e.id)}')"><span class="g-icon">delete</span></button>
-        <button class="btn" style="padding:2px 8px;" onclick="event.stopPropagation();clear_catcher('${esc(e.id)}')"><span class="g-icon">clear_all</span></button>
-      </div>
-      <div class="catcher-body" id="${uid}"></div>
-    </div>`;
-  }).join('');
-}
-
-async function load_catcher_calls(id,uid){
-  let el=document.getElementById(uid);
-  if(el.classList.contains('open')){el.classList.remove('open');return;}
-  el.classList.add('open');
-  let calls=await fetch(`/api/catcher/calls?id=${encodeURIComponent(id)}`).then(r=>r.json());
-  if(!calls.length){el.innerHTML='<div class="call-row" style="color:var(--fg-dim);">No calls recorded yet</div>';return;}
-  el.innerHTML=calls.slice().reverse().map(c=>{
-    let t=new Date(c.ts*1000).toLocaleTimeString();
-    let args=c.args?.map((a,i)=>{
-      let v=typeof a.v==='object'?JSON.stringify(a.v):String(a.v);
-      return`<span style="color:var(--type)">${esc(a.t)}</span>: <span style="color:var(--num)">${esc(v)}</span>`;
-    }).join(', ')||'<span style="color:var(--fg-dim);">no args</span>';
-    return`<div class="call-row">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span class="call-inst" style="color:var(--type);font-weight:600;">${esc(c.instance)}</span>
-        <span class="call-ts" style="color:var(--fg-dim);font-size:10px;">${t}</span>
-      </div>
-      <div class="call-args">(${args})</div>
-    </div>`;
-  }).join('');
-}
-
-async function unhook_catcher(id){
-  await fetch('/api/catcher/unhook',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
-  refresh_catcher();
-}
-
-async function clear_catcher(id){
-  await fetch('/api/catcher/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
-  refresh_catcher();
-}
-
-async function unhook_all(){
-  let entries=await fetch('/api/catcher/list').then(r=>r.json());
-  for(let e of entries)await fetch('/api/catcher/unhook',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:e.id})});
-  refresh_catcher();
 }
 
 function download_dump(){
@@ -1692,31 +1624,17 @@ async function calls_poll_status(){
   if(!s)return;
   calls_paused=s.paused;
   let pb=document.getElementById('calls-pause-btn');
-  pb.innerHTML=s.paused?'<span class="g-icon">play_arrow</span> Resume':'<span class="g-icon">pause</span> Pause';
+  pb.innerHTML=s.paused?'<svg class=i><use href=#i-play></use></svg> Resume':'<svg class=i><use href=#i-pause></use></svg> Pause';
   calls_scene_on=!!(s.scene&&s.scene.on);
   let sb=document.getElementById('calls-scene-btn');
-  if(sb)sb.innerHTML=calls_scene_on?'<span class="g-icon">visibility_off</span> Stop scene watch':'<span class="g-icon">visibility</span> Watch scene';
+  if(sb)sb.innerHTML=calls_scene_on?'<svg class=i><use href=#i-eye-off></use></svg> Stop scene watch':'<svg class=i><use href=#i-eye></use></svg> Watch scene';
   let st=`${s.hooked} methods hooked`;
   if(s.scene&&s.scene.on)st+=` | scene: ${s.scene.classes} classes, ${s.scene.queued} queued, ${s.scene.failed} skipped`;
   if(s.scene&&s.scene.main_thread_error)st+=' | '+esc(s.scene.main_thread_error)+' (hooking from a background thread)';
-  if(s.targets&&s.targets.length)st+=' | '+s.targets.map(t=>`${esc(t.label)} (${t.count}) <a href="#" style="color:#f87171" onclick="calls_unwatch(${t.id});return false;">x</a>`).join(', ');
+  if(s.targets&&s.targets.length)st+=' | '+s.targets.map(t=>`${esc(t.label)} (${t.count}) <a href="#" style="color:var(--mth)" onclick="calls_unwatch(${t.id});return false;">x</a>`).join(', ');
   if(s.job&&s.job.running)st+=` | hooking ${s.job.done}/${s.job.total} (ok ${s.job.hooked}, failed ${s.job.failed})`;
   else if(s.job&&s.job.error)st+=' | '+esc(s.job.error);
   document.getElementById('calls-status').innerHTML=st;
-}
-
-function calls_render(){
-  let q=(document.getElementById('calls-filter').value||'').toLowerCase();
-  let items=calls_items;
-  if(q)items=items.filter(i=>((i.c||'')+'::'+(i.f||'')+' '+(i.a||'')).toLowerCase().includes(q));
-  let t0=items.length?items[0].t:0;
-  let out=document.getElementById('calls-log');
-  let h=items.slice(-1500).map(i=>{
-    let inst=i.i?` <span style="color:var(--fg-dim)">${esc(i.i)}</span>`:'';
-    return `<div class="calls-row"><span class="cr-t">${((i.t-t0)/1000).toFixed(2)}</span><span><span class="cr-c">${esc(i.c||'?')}</span>::<span class="cr-f" onclick="calls_ignore_one(${i.m},true)" title="Tap to ignore this method">${esc(i.f||'?')}</span>${inst}(<span class="cr-a">${esc(i.a)}</span>)</span></div>`;
-  }).join('');
-  out.innerHTML=h;
-  if(document.getElementById('calls-follow').checked)out.scrollTop=out.scrollHeight;
 }
 
 async function calls_watch(){
@@ -1783,7 +1701,7 @@ function calls_render_methods(){
   document.getElementById('callsMethodsList').innerHTML=list.map(m=>`<div class="calls-m${m.i?' ign':''}">
     <input type="checkbox" ${m.i?'':'checked'} title="Record this method" onchange="calls_ignore_one(${m.id},!this.checked)">
     <span style="flex:1;overflow:hidden;text-overflow:ellipsis;"><span style="color:var(--type)">${esc(m.c)}</span>::<span style="color:var(--mth);font-weight:700;">${esc(m.f)}</span>(${esc(m.p)})</span>
-    <span style="color:var(--num)">${m.n}${m.d?` <span style="color:#f87171">(-${m.d})</span>`:''}</span></div>`).join('')||'<div style="padding:20px;text-align:center;color:var(--fg-dim);">No hooked methods</div>';
+    <span style="color:var(--num)">${m.n}${m.d?` <span style="color:var(--mth)">(-${m.d})</span>`:''}</span></div>`).join('')||'<div style="padding:20px;text-align:center;color:var(--fg-dim);">No hooked methods</div>';
 }
 
 
@@ -1879,16 +1797,16 @@ function ws_render_tree(){
       const d=node.dirs[dn];
       const open=ws.expanded[d.path]!==false;
       html+=`<div class="ws-row${ws.sel_dir===d.path?' active':''}" style="padding-left:${6+depth*14}px" data-path="${ws_esc(d.path)}" data-dir="1" onclick="ws_row_click(this)">`+
-        `<span class="g-icon" style="font-size:15px;color:var(--fg-dim);">${open?'folder_open':'folder'}</span><span class="nm">${ws_esc(dn)}</span>`+
-        `<span class="acts"><button class="ws-ibtn" title="Rename" onclick="event.stopPropagation();ws_rename(this.closest('.ws-row').dataset.path)"><span class="g-icon" style="font-size:14px;">edit</span></button>`+
-        `<button class="ws-ibtn" title="Delete" onclick="event.stopPropagation();ws_delete(this.closest('.ws-row').dataset.path,true)"><span class="g-icon" style="font-size:14px;">delete</span></button></span></div>`;
+        `${ic(open?'folder-open':'folder')}<span class="nm">${ws_esc(dn)}</span>`+
+        `<span class="acts"><button class="ws-ibtn" title="Rename" onclick="event.stopPropagation();ws_rename(this.closest('.ws-row').dataset.path)"><svg class=i><use href=#i-pencil></use></svg></button>`+
+        `<button class="ws-ibtn" title="Delete" onclick="event.stopPropagation();ws_delete(this.closest('.ws-row').dataset.path,true)"><svg class=i><use href=#i-trash-2></use></svg></button></span></div>`;
       if(open)walk(d,depth+1);
     }
     for(const f of node.files.sort((a,b)=>a.name.localeCompare(b.name))){
       html+=`<div class="ws-row${ws.active===f.path?' active':''}" style="padding-left:${6+depth*14}px" data-path="${ws_esc(f.path)}" onclick="ws_row_click(this)">`+
-        `<span class="g-icon" style="font-size:15px;color:var(--fg-dim);">description</span><span class="nm">${ws_esc(f.name)}</span>`+
-        `<span class="acts"><button class="ws-ibtn" title="Rename" onclick="event.stopPropagation();ws_rename(this.closest('.ws-row').dataset.path)"><span class="g-icon" style="font-size:14px;">edit</span></button>`+
-        `<button class="ws-ibtn" title="Delete" onclick="event.stopPropagation();ws_delete(this.closest('.ws-row').dataset.path,false)"><span class="g-icon" style="font-size:14px;">delete</span></button></span></div>`;
+        `<svg class=i><use href=#i-file-text></use></svg><span class="nm">${ws_esc(f.name)}</span>`+
+        `<span class="acts"><button class="ws-ibtn" title="Rename" onclick="event.stopPropagation();ws_rename(this.closest('.ws-row').dataset.path)"><svg class=i><use href=#i-pencil></use></svg></button>`+
+        `<button class="ws-ibtn" title="Delete" onclick="event.stopPropagation();ws_delete(this.closest('.ws-row').dataset.path,false)"><svg class=i><use href=#i-trash-2></use></svg></button></span></div>`;
     }
   }
   walk(root,0);
@@ -1930,9 +1848,9 @@ function ws_render_tabs(){
     const dirty=ws.buf[p]&&ws.buf[p].dirty;
     html+=`<div class="ws-tab${p===ws.active?' active':''}" data-path="${ws_esc(p)}" title="${ws_esc(p)}" onclick="ws_open_file(this.dataset.path)">`+
       `<span>${ws_esc(name)}</span>${dirty?'<span class="dirty"></span>':''}`+
-      `<button class="ws-ibtn" title="Close" onclick="event.stopPropagation();ws_close_file(this.closest('.ws-tab').dataset.path)"><span class="g-icon" style="font-size:13px;">close</span></button></div>`;
+      `<button class="ws-ibtn" title="Close" onclick="event.stopPropagation();ws_close_file(this.closest('.ws-tab').dataset.path)"><svg class=i><use href=#i-x></use></svg></button></div>`;
   }
-  if(ws.active)html+=`<div class="ws-tab" style="margin-left:auto;border-right:none;" title="Run this file" onclick="ws_run(ws.active)"><span class="g-icon" style="font-size:15px;color:#34d399;">play_arrow</span></div>`;
+  if(ws.active)html+=`<div class="ws-tab" style="margin-left:auto;border-right:none;" title="Run this file" onclick="ws_run(ws.active)"><svg class=i><use href=#i-play></use></svg></div>`;
   el.innerHTML=html;
 }
 
@@ -1944,6 +1862,7 @@ function ws_update_gutter(){
   const g=document.getElementById('ws-gutter');
   g.textContent=t;
   g.scrollTop=ed.scrollTop;
+  if(typeof lua_hl_sync==='function')lua_hl_sync();
 }
 
 function ws_render_editor(){
@@ -2143,13 +2062,13 @@ async function ws_refresh_zips(){
       html+=`<div class="ws-zip-row" data-name="${ws_esc(z.name)}"><div class="ws-zip-name">${ws_esc(z.name)}</div>`+
         `<div class="ws-zip-meta">${ws_format_size(z.size)} - ${ws_esc(when)}</div>`+
         `<div class="ws-zip-btns">`+
-        `<button class="btn btn-grn" onclick="ws_load_device_zip(this.closest('.ws-zip-row').dataset.name)"><span class="g-icon">folder_open</span> Load</button>`+
-        `<button class="btn" onclick="ws_download_device_zip(this.closest('.ws-zip-row').dataset.name)"><span class="g-icon">download</span></button>`+
-        `<button class="btn btn-red" onclick="ws_delete_device_zip(this.closest('.ws-zip-row').dataset.name)"><span class="g-icon">delete</span></button>`+
+        `<button class="btn btn-grn" onclick="ws_load_device_zip(this.closest('.ws-zip-row').dataset.name)"><svg class=i><use href=#i-folder-open></use></svg> Load</button>`+
+        `<button class="btn" onclick="ws_download_device_zip(this.closest('.ws-zip-row').dataset.name)"><svg class=i><use href=#i-download></use></svg></button>`+
+        `<button class="btn btn-red" onclick="ws_delete_device_zip(this.closest('.ws-zip-row').dataset.name)"><svg class=i><use href=#i-trash-2></use></svg></button>`+
         `</div></div>`;
     }
     el.innerHTML=html||'<div class="ws-hint">No ZIP files saved on this device yet. Use Save On Device to create one.</div>';
-    document.getElementById('ws-zip-path').textContent='Folder: '+ws.info.zips+'  (ZIP files you copy here with a file manager or adb appear in this list)';
+    document.getElementById('ws-zip-path').textContent='Folder: '+ws.info.zips+(ws.info.zips_global?'  (shared by every game on this device, ZIP files copied here appear in the list)':'  (per-game fallback, storage access for /sdcard/BNMExplorer/zips was not available)');
   }catch(e){el.innerHTML='<div class="ws-hint">'+ws_esc(e.message)+'</div>';}
 }
 
@@ -2257,12 +2176,602 @@ async function ftrack_clear(){
   ftrack_poll();
 }
 
+function ic(n){return '<svg class="i"><use href="#i-'+n+'"></use></svg>';}
+const cls_icon={class:'box',struct:'square',enum:'list',interface:'circle-dot'};
+
+function side_tab(id){
+  document.querySelectorAll('.side-tab').forEach(t=>t.classList.toggle('active',t.dataset.t===id));
+  document.querySelectorAll('.side-pane').forEach(p=>p.classList.toggle('active',p.id==='side-'+id));
+  if(id==='search')document.getElementById('msearch-q').focus();
+}
+
+function asm_node(a,open){
+  return `<ul class="tree-node"><div class="tree-nc" onclick="toggle_asm(this,'${esc(a)}')"><span class="arr${open?' open':''}">${ic('chevron-right')}</span><div class="ico">${ic('package')}</div><span class="nm">${esc(a)}</span></div><div class="kids${open?' open':''}"></div></ul>`;
+}
+
+function cls_node(asm,c){
+  let t=c.t||'class';
+  let badge=t!=='class'?`<span class="mono-tag">${esc(t)}</span>`:'';
+  return `<div class="tree-nc" onclick="load_cls(this,'${esc(asm)}','${esc(c.ns||'')}','${esc(c.name)}')"><span class="arr"></span><div class="ico t-${t==='interface'?'iface':t}">${ic(cls_icon[t]||'box')}</div><span class="nm">${esc(c.name)}</span>${badge}</div>`;
+}
+
+function ns_node(ns,inner,open,count){
+  return `<ul class="tree-node"><div class="tree-nc" onclick="toggle_ns(this)"><span class="arr${open?' open':''}">${ic('chevron-right')}</span><div class="ico">${ic('folder')}</div><span class="nm">${esc(ns||'(global)')}</span><span class="cnt">${count}</span></div><div class="kids${open?' open':''}">${inner}</div></ul>`;
+}
+
+function group_by_ns(list){
+  let by_ns={};
+  for(let c of list){let ns=c.ns||'';(by_ns[ns]=by_ns[ns]||[]).push(c);}
+  return by_ns;
+}
+
+function render_ns_groups(asm,list,open){
+  let by_ns=group_by_ns(list),h='';
+  for(let ns of Object.keys(by_ns).sort()){
+    let items=by_ns[ns].sort((a,b)=>a.name.localeCompare(b.name));
+    h+=ns_node(ns,items.map(c=>cls_node(asm,c)).join(''),open,items.length);
+  }
+  return h;
+}
+
+async function init(){
+  try{
+    let asms=await fetch('/api/assemblies').then(r=>r.json());
+    window.asm_list=asms;
+    document.getElementById('tree-root').innerHTML=asms.map(a=>asm_node(a,false)).join('');
+  }catch(e){}
+  load_scene();
+}
+
+async function toggle_asm(el,asm){
+  let kids=el.nextElementSibling,arr=el.querySelector('.arr');
+  if(kids.classList.contains('open')){kids.classList.remove('open');arr.classList.remove('open');return;}
+  if(!kids.innerHTML.trim()){
+    let classes=await fetch(`/api/classes?a=${encodeURIComponent(asm)}`).then(r=>r.json());
+    kids.innerHTML=render_ns_groups(asm,classes,false);
+  }
+  kids.classList.add('open');arr.classList.add('open');
+}
+
+function path_match(a,ns,name,p){
+  let has=(s,q)=>!q||String(s||'').toLowerCase().includes(q);
+  if(p.length===0)return true;
+  if(p.length===1)return has(a,p[0])||has(ns,p[0])||has(name,p[0]);
+  if(p.length===2)return has(a,p[0])&&(has(ns,p[1])||has(name,p[1]));
+  return has(a,p[0])&&has(ns,p[1])&&has(name,p[2]);
+}
+
+let tree_timer=null;
+function tree_filter_input(){clearTimeout(tree_timer);tree_timer=setTimeout(tree_filter_apply,140);}
+
+async function tree_filter_apply(){
+  let q=document.getElementById('tree-q').value.trim();
+  let root=document.getElementById('tree-root');
+  if(!q){root.innerHTML=(window.asm_list||[]).map(a=>asm_node(a,false)).join('');return;}
+  if(!all_cls_cache)all_cls_cache=await fetch('/api/allclasses').then(r=>r.json());
+  let parts=q.toLowerCase().split('/').map(s=>s.trim());
+  while(parts.length&&!parts[parts.length-1])parts.pop();
+  let res=[];
+  for(let c of all_cls_cache){if(path_match(c.a,c.ns,c.name,parts)){res.push(c);if(res.length>=3000)break;}}
+  let by_asm={};
+  for(let c of res)(by_asm[c.a]=by_asm[c.a]||[]).push(c);
+  let h='',many=res.length>300;
+  for(let a of Object.keys(by_asm).sort()){
+    h+=`<ul class="tree-node"><div class="tree-nc" onclick="toggle_ns(this)"><span class="arr open">${ic('chevron-right')}</span><div class="ico">${ic('package')}</div><span class="nm">${esc(a)}</span><span class="cnt">${by_asm[a].length}</span></div><div class="kids open">${render_ns_groups(a,by_asm[a],!many)}</div></ul>`;
+  }
+  root.innerHTML=h||'<div class="ws-hint">No classes match</div>';
+}
+
+function toggle_ns(el){el.nextElementSibling.classList.toggle('open');el.querySelector('.arr').classList.toggle('open');}
+
+const ms={kinds:{class:true,method:true,field:true,property:true},hits:[],seq:0,timer:null};
+
+function ms_chip(k){
+  ms.kinds[k]=!ms.kinds[k];
+  document.getElementById('chip-'+k).classList.toggle('on',ms.kinds[k]);
+  ms_input();
+}
+
+function ms_input(){clearTimeout(ms.timer);ms.timer=setTimeout(ms_run,220);}
+
+async function ms_run(){
+  let q=document.getElementById('msearch-q').value.trim();
+  let path=document.getElementById('msearch-path').value.trim();
+  let st=document.getElementById('msearch-status'),list=document.getElementById('msearch-list');
+  if(!q&&!path){st.textContent='';list.innerHTML='';ms.hits=[];return;}
+  let kinds=Object.keys(ms.kinds).filter(k=>ms.kinds[k]).join(',');
+  if(!kinds){st.textContent='Pick at least one kind';return;}
+  let my=++ms.seq;
+  st.textContent='Searching...';
+  let d=await fetch(`/api/search?q=${encodeURIComponent(q)}&path=${encodeURIComponent(path)}&kinds=${kinds}&limit=500`).then(r=>r.json()).catch(()=>null);
+  if(my!==ms.seq)return;
+  if(!d){st.textContent='Search failed';return;}
+  ms.hits=d.r;
+  st.textContent=`${d.r.length}${d.truncated?'+':''} results in ${d.scanned} classes`;
+  list.innerHTML=d.r.map((h,i)=>{
+    let sig=h.k==='method'?`(${esc(h.p||'')}) : ${esc(h.t)}`:(h.k==='class'?esc(h.t):': '+esc(h.t));
+    let full=(h.ns?h.ns+'.':'')+h.c;
+    return `<div class="sr-row" onclick="ms_open(${i})" title="${esc(h.a+'/'+full+(h.k==='class'?'':'.'+h.n))}"><span class="sr-k ${h.k}"></span><span class="sr-n">${esc(h.n)}</span><span class="sr-t">${sig}</span><span class="sr-c">${h.k==='class'?esc(h.ns||h.a):esc(h.c)}</span></div>`;
+  }).join('');
+}
+
+function ms_open(i){
+  let h=ms.hits[i];if(!h)return;
+  toggle_sidebar(false);
+  if(h.k==='class'){load_cls(null,h.a,h.ns||'',h.c);return;}
+  open_member(h.a,h.ns||'',h.c,h.n);
+}
+
+function open_member(asm,ns,cls,member){
+  cur_asm=asm;cur_ns=ns;cur_cls=cls;
+  document.getElementById('ctrl-addr').value='0x0';
+  document.getElementById('ctrl-asm').value=asm;
+  document.getElementById('ctrl-ns').value=ns;
+  document.getElementById('ctrl-cls').value=cls;
+  document.getElementById('ctrl-static').checked=true;
+  document.getElementById('ctrl-addr').disabled=true;
+  insp.filter=member||'';
+  switch_tab('ctrl');
+  load_controller();
+}
+
+function code_hl_type(t){return `<span class="c-ty">${esc(t)}</span>`;}
+
+function format_code(d){
+  let ns=d.ns||'',name=d.name||'',parent=d.parent||'';
+  let t=d.type||'class';
+  let ind=ns?'    ':'';
+  let lines=[];
+  if(ns)lines.push(`<span class="c-kw">namespace</span> <span class="c-ty">${esc(ns)}</span> {`);
+  let decl=`${ind}<span class="c-kw">public ${t}</span> <span class="c-ty">${esc(name)}</span>`;
+  if(parent&&parent!=='Object'&&parent!=='ValueType')decl+=` <span class="c-op">:</span> <span class="c-ty">${esc(parent)}</span>`;
+  lines.push(decl+' {');
+  if((d.fields||[]).length)lines.push(`${ind}    <span class="c-cm">// fields</span>`);
+  for(let f of d.fields||[]){
+    let st=f.s?' <span class="c-kw">static</span>':'';
+    lines.push(`${ind}    <span class="c-kw">public</span>${st} ${code_hl_type(f.type)} <span>${esc(f.name)}</span>; <span class="c-cm">// 0x${f.off?Number(f.off).toString(16):'?'}</span>`);
+  }
+  if((d.props||[]).length)lines.push('',`${ind}    <span class="c-cm">// properties</span>`);
+  for(let p of d.props||[]){
+    let acc=(p.g?'get; ':'')+(p.s?'set; ':'');
+    lines.push(`${ind}    <span class="c-kw">public</span> ${code_hl_type(p.type)} <span>${esc(p.name)}</span> { <span class="c-kw">${acc}</span>}`);
+  }
+  if((d.methods||[]).length)lines.push('',`${ind}    <span class="c-cm">// methods</span>`);
+  for(let m of d.methods||[]){
+    let prms=(m.params||[]).map(p=>`${code_hl_type(p.t)} ${esc(p.n)}`).join(', ');
+    let st=m.s?' <span class="c-kw">static</span>':'';
+    let addr=m.addr?` <span class="c-cm">// ${esc(m.addr)}</span>`:'';
+    lines.push(`${ind}    <span class="c-kw">public</span>${st} ${code_hl_type(m.ret)} <span class="c-mt">${esc(m.name)}</span>(${prms}) {}${addr}`);
+  }
+  lines.push(ind+'}');
+  if(ns)lines.push('}');
+  return lines.join('\n');
+}
+
+async function load_cls(el,asm,ns,name){
+  document.querySelectorAll('#tree-root .tree-nc').forEach(e=>e.classList.remove('active'));
+  if(el)el.classList.add('active');
+  cur_asm=asm;cur_ns=ns;cur_cls=name;
+  toggle_sidebar(false);
+  let d=await fetch(`/api/class?a=${encodeURIComponent(asm)}&ns=${encodeURIComponent(ns)}&n=${encodeURIComponent(name)}`).then(r=>r.json());
+  let bar=`<div class="mem-bar" style="white-space:normal;position:sticky;top:-8px;margin:-8px -12px 8px;">
+    <span class="mem-title grow">${esc((ns?ns+'.':'')+name)}</span>
+    <button class="btn btn-sm" onclick="switch_tab('inst')">${ic('database')} Instances</button>
+    <button class="btn btn-sm btn-blu" onclick="open_static_controller()">${ic('gamepad-2')} Inspect static</button>
+    <button class="btn btn-sm" onclick="calls_watch_class('${esc(ns)}','${esc(name)}')">${ic('eye')} Watch all</button>
+  </div>`;
+  document.getElementById('pnl-code').innerHTML=bar+format_code(d);
+  switch_tab('code');
+  load_instances();
+}
+
+const insp={d:null,asm:'',ns:'',cls:'',addr:'0x0',scope:'all',kinds:{property:true,field:true,method:true},filter:'',auto:false,timer:null,watched:{}};
+
+function insp_short(t){return String(t||'').replace(/^System\./,'');}
+
+async function insp_load_watched(){
+  insp.watched={};
+  let d=await fetch('/api/calls/methods').then(r=>r.json()).catch(()=>null);
+  for(let m of (d&&d.methods)||[])if(m.a)insp.watched[m.a.toUpperCase()]=m.id;
+}
+
+async function load_controller(keep){
+  let addr=document.getElementById('ctrl-addr').value;
+  let asm=document.getElementById('ctrl-asm').value;
+  let ns=document.getElementById('ctrl-ns').value;
+  let cls=document.getElementById('ctrl-cls').value;
+  let is_static=document.getElementById('ctrl-static').checked;
+  let box=document.getElementById('ctrl-insp');
+  if(!keep)box.innerHTML='<div class="ws-hint" style="text-align:center;padding:30px;">Loading target...</div>';
+  let d=await fetch(`/api/controller/inspect?addr=${addr}&asm=${encodeURIComponent(asm)}&ns=${encodeURIComponent(ns)}&cls=${encodeURIComponent(cls)}`).then(r=>r.json()).catch(()=>({}));
+  if(!d.name){box.innerHTML='<div class="ws-hint" style="text-align:center;padding:30px;color:var(--mth);">Target class or instance not found</div>';return;}
+  await insp_load_watched();
+  insp.d=d;insp.addr=addr;insp.asm=asm;insp.ns=ns;insp.cls=cls;
+  if(!keep)insp.scope='all';
+  if(keep&&document.getElementById('insp-list'))insp_list();
+  else insp_render();
+}
+
+function insp_render(){
+  let d=insp.d,box=document.getElementById('ctrl-insp');
+  let full=(d.ns?d.ns+'.':'')+d.name;
+  let inst=/^0x0*$/.test(insp.addr)||document.getElementById('ctrl-static').checked?'static (no instance)':'instance '+esc(insp.addr);
+  let seg=(id,l)=>`<button class="${insp.scope===id?'on':''}" onclick="insp_scope('${id}')">${l}</button>`;
+  let chip=(k,l)=>`<span class="chip k-${k}${insp.kinds[k]?' on':''}" onclick="insp_kind('${k}')"><span class="sq"></span>${l}</span>`;
+  box.innerHTML=`<div class="mem-head"><div class="mem-title">${esc(full)}</div><div class="mem-sub">Assembly: ${esc(d.asm||insp.asm)} &middot; ${inst}</div></div>
+  <div class="mem-bar"><span class="mem-name"><span class="lab">Filter</span></span>
+    <input class="inp grow" id="insp-filter" placeholder="Filter names..." value="${esc(insp.filter)}" oninput="insp.filter=this.value;insp_list()">
+    <button class="btn btn-sm" onclick="load_controller(true)">${ic('refresh-cw')} Update values</button>
+    <label class="chip${insp.auto?' on':''}" onclick="insp_auto(this)"><span class="sq"></span>Auto-update</label></div>
+  <div class="mem-bar"><span class="lab" style="color:var(--fg-mut)">Scope</span><div class="seg">${seg('all','All')}${seg('instance','Instance')}${seg('static','Static')}</div>
+    <div class="chips">${chip('property','Property')}${chip('field','Field')}${chip('method','Method')}</div></div>
+  <div id="insp-list"></div>`;
+  insp_list();
+}
+
+function insp_scope(s){insp.scope=s;insp_render();}
+function insp_kind(k){insp.kinds[k]=!insp.kinds[k];insp_render();}
+function insp_auto(el){
+  insp.auto=!insp.auto;el.classList.toggle('on',insp.auto);
+  clearInterval(insp.timer);insp.timer=null;
+  if(insp.auto)insp.timer=setInterval(()=>{
+    if(!document.getElementById('pnl-ctrl').classList.contains('active')){return;}
+    let a=document.activeElement;
+    if(a&&a.closest&&a.closest('#insp-list'))return;
+    load_controller(true);
+  },1500);
+}
+
+function value_inner(r,da,dis){
+  let html=build_field_row(r,da,dis,true,true);
+  let s=html.indexOf('<div class="val">')+17;
+  return html.slice(s,html.length-12);
+}
+
+function insp_list(){
+  let d=insp.d;if(!d)return;
+  let q=(insp.filter||'').toLowerCase(),rows=[];
+  let ok_scope=s=>insp.scope==='all'||(insp.scope==='static'?s:!s);
+  for(let f of d.fields||[]){
+    let kind=f.isProp?'property':'field';
+    if(!insp.kinds[kind]||!ok_scope(!!f.static))continue;
+    if(q&&!(f.name||'').toLowerCase().includes(q))continue;
+    rows.push({kind,f});
+  }
+  rows.sort((a,b)=>(a.kind===b.kind?0:(a.kind==='property'?-1:1)));
+  if(insp.kinds.method){
+    (d.methods||[]).forEach((m,idx)=>{
+      if(!ok_scope(!!m.s))return;
+      if(q&&!(m.name||'').toLowerCase().includes(q))return;
+      rows.push({kind:'method',m,idx});
+    });
+  }
+  let total=rows.length;
+  rows=rows.slice(0,700);
+  let h='';
+  for(let r of rows){
+    if(r.kind==='method')h+=method_row(r.m,r.idx);
+    else h+=field_row(r.f,r.kind);
+  }
+  if(total>rows.length)h+=`<div class="ws-hint">Showing ${rows.length} of ${total}, refine the filter</div>`;
+  document.getElementById('insp-list').innerHTML=h||'<div class="ws-hint" style="padding:20px;text-align:center;">Nothing matches</div>';
+}
+
+function field_row(f,kind){
+  let da=`data-addr="${esc(insp.addr)}" data-tt="instance" data-pid="${esc(f.name)}" data-vt="${esc(f.type)}" data-ip="${f.isProp?'true':'false'}" data-static="${f.static?'true':'false'}"`;
+  let dis=f.canWrite===false?'disabled':'';
+  return `<div class="mrow"><div class="mn k-${kind}"><span class="d">${esc(f.decl||insp.cls)}.</span>${esc(f.name)}${f.static?'<span class="sc">static</span>':''}</div><div class="mv"><div class="mline"><span class="ty">${esc(insp_short(f.type))}</span>${value_inner(f,da,dis)}</div></div></div>`;
+}
+
+function method_row(m,idx){
+  let prim=['System.Int32','Int32','int','System.Single','Single','float','System.Double','Double','double','System.Boolean','Boolean','bool','System.String','String','string','System.Int64','Int64','long','System.UInt32','UInt32','uint','System.Byte','Byte','byte','System.Int16','Int16','short','UnityEngine.Vector3','Vector3','UnityEngine.Color','Color','UnityEngine.Vector2','Vector2'];
+  let params='';
+  (m.params||[]).forEach((p,pidx)=>{
+    let is_obj=!prim.includes(p.t);
+    let input_id=`marg-input-${idx}-${pidx}`;
+    params+=`<div class="mline"><span class="ty">${esc(insp_short(p.t))}</span><input type="text" id="${input_id}" class="inp marg-${idx}" data-type="${esc(p.t)}" placeholder="${is_obj?'0x... '+esc(p.n):esc(p.n)}">`;
+    if(is_obj)params+=`<button class="btn btn-sm btn-blu" onclick="open_instance_picker('${esc(p.t)}','${input_id}')" title="Pick live instance">${ic('mouse-pointer-click')}</button>`;
+    params+='</div>';
+  });
+  let watched=m.addr&&insp.watched[String(m.addr).toUpperCase()]!==undefined;
+  let n=(m.params||[]).length;
+  return `<div class="mrow"><div class="mn k-method"><span class="d">${esc(m.decl||insp.cls)}.</span>${esc(m.name)}${m.s?'<span class="sc">static</span>':''}</div><div class="mv">${params}<div class="mline"><button class="btn btn-sm" onclick="exec_method('${esc(insp.asm)}','${esc(insp.ns)}','${esc(insp.cls)}','${esc(m.name)}',${m.s?'true':'false'},'${esc(insp.addr)}',${idx})">Evaluate (${n})</button><button class="btn btn-sm${watched?' btn-grn':''}" title="Watch calls and callers" onclick="watch_member('${esc(m.addr||'')}',this)">${ic(watched?'eye-off':'eye')}</button><span class="ev" id="mres-${idx}">Not yet evaluated (${esc(insp_short(m.ret))})</span></div></div></div>`;
+}
+
+async function watch_member(addr,btn){
+  if(!addr)return;
+  let key=addr.toUpperCase();
+  if(insp.watched[key]!==undefined){
+    await fetch('/api/calls/unwatch_method',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({m:insp.watched[key]})});
+    delete insp.watched[key];
+    btn.classList.remove('btn-grn');btn.innerHTML=ic('eye');return;
+  }
+  let d=await fetch('/api/calls/watch_method',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asm:insp.asm,ns:insp.ns,cls:insp.cls,addr})}).then(r=>r.json()).catch(()=>({error:'request failed'}));
+  if(d.ok){insp.watched[key]=d.m;btn.classList.add('btn-grn');btn.innerHTML=ic('eye-off');}
+  else alert('Watch failed: '+(d.error||'unknown'));
+}
+
+async function exec_method(asm,ns,cls,m_name,is_static,addr,idx){
+  let args=Array.from(document.querySelectorAll(`.marg-${idx}`)).map(el=>({t:el.getAttribute('data-type'),v:el.value}));
+  let res=document.getElementById(`mres-${idx}`);
+  res.className='ev';res.textContent='Invoking...';
+  let d=await fetch('/api/invoke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asm,ns,cls,method:m_name,static:is_static,instance:addr,args})}).then(r=>r.json()).catch(()=>({ok:false,error:'request failed'}));
+  let rm=d.ok?String(d.value).match(/ @ 0x([0-9A-Fa-f]+)/):null;
+  let open_btn=rm&&!/^0+$/.test(rm[1])?` <button class="btn btn-sm" onclick="open_object_ref('${rm[1]}')">${ic('external-link')}</button>`:'';
+  res.className='ev ok';
+  res.innerHTML=d.ok?`${esc(d.value)}${open_btn}`:`<span style="color:var(--mth)">${esc(d.error)}</span>`;
+}
+
+function switch_tab(id){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById(`tab-${id}`).classList.add('active');
+  document.getElementById(`pnl-${id}`).classList.add('active');
+  if(id==='loops')refresh_loops_ui();
+  if(id==='calls')calls_on_show();
+  if(id==='lua')ws_on_show();
+  if(id==='ftrack')ftrack_on_show();
+}
+
+function do_search(e){
+  if(e.key!=='Enter')return;
+  let q=document.getElementById('gSearch').value.trim();
+  document.getElementById('msearch-q').value=q;
+  document.getElementById('msearch-path').value='';
+  side_tab('search');
+  toggle_sidebar(true);
+  ms_run();
+}
+
+function calls_render(){
+  let q=(document.getElementById('calls-filter').value||'').toLowerCase();
+  let items=calls_items;
+  if(q)items=items.filter(i=>((i.c||'')+'::'+(i.f||'')+' '+(i.a||'')+' '+((i.cb||[]).join(' '))).toLowerCase().includes(q));
+  let t0=items.length?items[0].t:0;
+  let out=document.getElementById('calls-log');
+  let h=items.slice(-1500).map(i=>{
+    let inst=i.i?` <span style="color:var(--fg-dim)">${esc(i.i)}</span>`:'';
+    let cb=(i.cb&&i.cb.length)?`<span class="cr-cb" title="${esc(i.cb.join('\n'))}" onclick="calls_pick_caller(this.dataset.c)" data-c="${esc(i.cb[0])}">&larr; ${esc(i.cb[0])}</span>`:'';
+    return `<div class="calls-row"><span class="cr-t">${((i.t-t0)/1000).toFixed(2)}</span><span><span class="cr-c" onclick="calls_show_callers(${i.m})" title="Show callers">${esc(i.c||'?')}</span>::<span class="cr-f" onclick="calls_ignore_one(${i.m},true)" title="Tap to ignore this method">${esc(i.f||'?')}</span>${inst}(<span class="cr-a">${esc(i.a)}</span>)</span>${cb}</div>`;
+  }).join('');
+  out.innerHTML=h;
+  if(document.getElementById('calls-follow').checked)out.scrollTop=out.scrollHeight;
+}
+
+function calls_pick_caller(c){
+  document.getElementById('calls-filter').value=c;
+  calls_render();
+}
+
+async function calls_show_callers(id){
+  let d=await fetch('/api/calls/callers?m='+id).then(r=>r.json()).catch(()=>null);
+  let box=document.getElementById('calls-callers');
+  if(!d||!d.callers||!d.callers.length){box.style.display='none';return;}
+  box.style.display='flex';
+  box.innerHTML='<span style="color:var(--fg-mut)">Callers:</span>'+d.callers.map(c=>`<span data-c="${esc(c.c)}" onclick="calls_pick_caller(this.dataset.c)">${esc(c.c)}<b>${c.n}</b></span>`).join('')+`<span style="margin-left:auto" onclick="this.parentElement.style.display='none'">${ic('x')}</span>`;
+}
+
+async function calls_watch_class(ns,cls){
+  let r=await fetch('/api/calls/watch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asm:'',ns,cls})}).then(r=>r.json()).catch(()=>({error:'request failed'}));
+  if(r.error){alert(r.error);return;}
+  switch_tab('calls');
+}
+
+const lua_keywords=new Set(['and','break','do','else','elseif','end','false','for','function','goto','if','in','local','nil','not','or','repeat','return','then','true','until','while']);
+const lua_api_list=[
+  ['find_class','(name [, assembly])','class'],['find_object','(class)','object'],['find_objects_of_type','(class)','list'],
+  ['hook_method','(class, method, count|"sig", fn [, asm])','hook'],['unhook_method','(id)','hook'],['unhook_all_methods','()','hook'],
+  ['hook_list','()','hook'],['hook_original','(...)','hook'],['hook_caller','()','hook'],['has_method_hook','(id)','hook'],['HOOK_NULL','','hook'],
+  ['find_classes','(text [, path, limit])','reflect'],['find_methods','(text [, path, limit])','reflect'],['find_fields','(text [, path, limit])','reflect'],
+  ['find_properties','(text [, path, limit])','reflect'],['find_members','(text [, path, limit])','reflect'],['list_assemblies','()','reflect'],
+  ['list_classes','([path, limit])','reflect'],['dump_class','(class)','reflect'],
+  ['print','(...)','core'],['require','(module)','core'],['every','(seconds, fn)','task'],['after','(seconds, fn)','task'],['cancel','(id)','task'],['cancel_all','()','task'],
+  ['on_update','(fn)','task'],['set_tick_hook','(fn)','task'],['has_tick_hook','()','task'],['get_time','()','core'],['type_name','(value)','core'],
+  ['vec2','(x, y)','math'],['vec3','(x, y, z)','math'],['vec4','(x, y, z, w)','math'],['quat','(x, y, z, w)','math'],['color','(r, g, b [, a])','math'],
+  ['destroy','(obj)','core'],['is_valid','(obj)','core'],['wrap','(addr, class)','core'],['get_builtin_resource','(type, name)','core'],['scene','','core'],['xr','','core']
+];
+const lua_member_sugar=['list_methods','list_fields','list_properties','list_members','list_parents','list_interfaces','list_nested','class_info','dump','get_method','get_field','set_field','get_component','add_component','get_component_in_children','get_class','debug_info','new','is_valid'];
+const lua_api_names=new Set(lua_api_list.map(a=>a[0]));
+
+function lua_hl_esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function lua_highlight(src){
+  let out='',i=0,n=src.length;
+  const span=(c,t)=>`<span class="${c}">${lua_hl_esc(t)}</span>`;
+  while(i<n){
+    let c=src[i];
+    if(c==='-'&&src[i+1]==='-'){
+      let m=/^--\[(=*)\[/.exec(src.slice(i,i+40));
+      let end;
+      if(m){let close=']'+m[1]+']';end=src.indexOf(close,i+m[0].length);end=end<0?n:end+close.length;}
+      else{end=src.indexOf('\n',i);if(end<0)end=n;}
+      out+=span('c-cm',src.slice(i,end));i=end;
+    }else if(c==='"'||c==="'"){
+      let j=i+1;
+      while(j<n&&src[j]!==c&&src[j]!=='\n'){if(src[j]==='\\')j++;j++;}
+      j=Math.min(n,j+1);
+      out+=span('c-st',src.slice(i,j));i=j;
+    }else if(c==='['&&/^\[=*\[/.test(src.slice(i,i+20))){
+      let m=/^\[(=*)\[/.exec(src.slice(i,i+20));
+      let close=']'+m[1]+']';
+      let end=src.indexOf(close,i+m[0].length);end=end<0?n:end+close.length;
+      out+=span('c-st',src.slice(i,end));i=end;
+    }else if(/[0-9]/.test(c)||(c==='.'&&/[0-9]/.test(src[i+1]||''))){
+      let m=/^(0[xX][0-9a-fA-F]+|\d*\.?\d+([eE][+-]?\d+)?|\d+\.)/.exec(src.slice(i,i+40));
+      let t=m?m[0]:c;
+      out+=span('c-nm',t);i+=t.length;
+    }else if(/[A-Za-z_]/.test(c)){
+      let j=i+1;
+      while(j<n&&/[A-Za-z0-9_]/.test(src[j]))j++;
+      let w=src.slice(i,j);
+      let k=j;while(k<n&&(src[k]===' '||src[k]==='\t'))k++;
+      let prev=i>0?src[i-1]:'';
+      if(lua_keywords.has(w))out+=span('c-kw',w);
+      else if(lua_api_names.has(w)&&prev!=='.'&&prev!==':')out+=span('c-gl',w);
+      else if(src[k]==='('||(prev===':'&&src[k]==='('))out+=span('c-fn',w);
+      else out+=lua_hl_esc(w);
+      i=j;
+    }else if('+-*/%^#&~|<>=.:,;(){}[]'.includes(c)){
+      out+=span('c-op',c);i++;
+    }else{out+=lua_hl_esc(c);i++;}
+  }
+  return out+'\n';
+}
+
+function lua_hl_sync(){
+  let ed=document.getElementById('lua-editor'),hl=document.getElementById('lua-hl');
+  hl.innerHTML=lua_highlight(ed.value);
+  hl.scrollTop=ed.scrollTop;hl.scrollLeft=ed.scrollLeft;
+}
+
+const ac={items:[],sel:0,open:false,start:0,class_cache:{},char_w:7.2};
+
+function ac_measure(){
+  let cv=document.createElement('canvas');
+  let c=cv.getContext&&cv.getContext('2d');
+  if(!c)return;
+  c.font="12px 'JetBrains Mono',ui-monospace,Consolas,monospace";
+  ac.char_w=c.measureText('M').width||7.2;
+}
+
+function ac_find_full(name){
+  if(!all_cls_cache)return null;
+  let want=name.toLowerCase();
+  return all_cls_cache.find(c=>((c.ns?c.ns+'.':'')+c.name).toLowerCase()===want)||all_cls_cache.find(c=>c.name.toLowerCase()===want)||null;
+}
+
+async function ac_class_members(full){
+  if(ac.class_cache[full])return ac.class_cache[full];
+  let c=ac_find_full(full);
+  if(!c)return [];
+  let d=await fetch(`/api/class?a=${encodeURIComponent(c.a)}&ns=${encodeURIComponent(c.ns||'')}&n=${encodeURIComponent(c.name)}`).then(r=>r.json()).catch(()=>null);
+  let items=[];
+  if(d){
+    for(let f of d.fields||[])items.push({t:f.name,k:'fld',d:insp_short(f.type)});
+    for(let p of d.props||[])items.push({t:p.name,k:'prop',d:insp_short(p.type)});
+    for(let m of d.methods||[])items.push({t:m.name,k:'fn',d:'('+(m.params||[]).map(p=>insp_short(p.t)+' '+p.n).join(', ')+') '+insp_short(m.ret)});
+  }
+  ac.class_cache[full]=items;
+  return items;
+}
+
+function ac_vars(text){
+  let vars={},re=/(?:local\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*find_class\(\s*["']([^"']+)["']/g,m;
+  while((m=re.exec(text)))vars[m[1]]=m[2];
+  return vars;
+}
+
+async function ac_collect(text,pos){
+  let before=text.slice(0,pos);
+  let line=before.slice(before.lastIndexOf('\n')+1);
+  let m;
+  if((m=/(?:find_class|find_object|find_objects_of_type|dump_class)\(\s*["']([^"']*)$/.exec(line))){
+    if(!all_cls_cache)all_cls_cache=await fetch('/api/allclasses').then(r=>r.json()).catch(()=>[]);
+    let q=m[1].toLowerCase(),out=[];
+    for(let c of all_cls_cache){
+      let full=(c.ns?c.ns+'.':'')+c.name;
+      if(full.toLowerCase().includes(q)){out.push({t:full,k:'cls',d:c.a});if(out.length>=60)break;}
+    }
+    return {start:pos-m[1].length,items:out};
+  }
+  if((m=/hook_method\(\s*["']([^"']+)["']\s*,\s*["']([^"']*)$/.exec(line))){
+    let items=(await ac_class_members(m[1])).filter(i=>i.k==='fn'&&i.t.toLowerCase().includes(m[2].toLowerCase()));
+    return {start:pos-m[2].length,items:items.slice(0,60)};
+  }
+  if((m=/([A-Za-z_][A-Za-z0-9_]*)\s*[.:]([A-Za-z0-9_]*)$/.exec(line))){
+    let vars=ac_vars(text),q=m[2].toLowerCase(),items=[];
+    if(vars[m[1]]){
+      items=(await ac_class_members(vars[m[1]])).filter(i=>i.t.toLowerCase().startsWith(q)||(q.length>1&&i.t.toLowerCase().includes(q)));
+    }
+    for(let s of lua_member_sugar)if(s.startsWith(q)&&vars[m[1]])items.push({t:s,k:'api',d:'LuaBNM'});
+    return {start:pos-m[2].length,items:items.slice(0,60)};
+  }
+  if((m=/([A-Za-z_][A-Za-z0-9_]*)$/.exec(line))){
+    let q=m[1].toLowerCase(),items=[],seen=new Set();
+    if(q.length<1)return null;
+    for(let [n,sig,k] of lua_api_list)if(n.toLowerCase().startsWith(q)){items.push({t:n,k:'api',d:sig});seen.add(n);}
+    for(let k of lua_keywords)if(k.startsWith(q)&&k!==q){items.push({t:k,k:'kw',d:''});seen.add(k);}
+    let words=text.match(/[A-Za-z_][A-Za-z0-9_]{2,}/g)||[];
+    for(let w of words)if(!seen.has(w)&&w!==m[1]&&w.toLowerCase().startsWith(q)){seen.add(w);items.push({t:w,k:'var',d:''});if(items.length>40)break;}
+    return {start:pos-m[1].length,items};
+  }
+  return null;
+}
+
+function ac_caret_xy(ed){
+  let before=ed.value.slice(0,ed.selectionStart);
+  let lines=before.split('\n');
+  let row=lines.length-1,col=lines[row].length;
+  return {x:10+col*ac.char_w-ed.scrollLeft,y:10+(row+1)*18-ed.scrollTop};
+}
+
+function ac_render(){
+  let pop=document.getElementById('lua-ac'),ed=document.getElementById('lua-editor');
+  if(!ac.items.length){pop.classList.remove('open');ac.open=false;return;}
+  let xy=ac_caret_xy(ed);
+  pop.style.left=Math.max(0,Math.min(xy.x,ed.clientWidth-220))+'px';
+  pop.style.top=Math.min(xy.y,Math.max(0,ed.clientHeight-200))+'px';
+  pop.innerHTML=ac.items.map((it,i)=>`<div class="ac-item${i===ac.sel?' sel':''}" data-i="${i}"><span class="k">${it.k}</span><span>${lua_hl_esc(it.t)}</span><span class="d">${lua_hl_esc(it.d||'')}</span></div>`).join('')+'<div class="ac-foot">Up/Down select, Enter or Tab accept, Esc close</div>';
+  pop.classList.add('open');ac.open=true;
+  let s=pop.querySelector('.ac-item.sel');if(s)s.scrollIntoView({block:'nearest'});
+}
+
+function ac_close(){ac.items=[];document.getElementById('lua-ac').classList.remove('open');ac.open=false;}
+
+let ac_seq=0;
+async function ac_update(force){
+  let ed=document.getElementById('lua-editor'),my=++ac_seq;
+  if(ed.selectionStart!==ed.selectionEnd){ac_close();return;}
+  let r=await ac_collect(ed.value,ed.selectionStart).catch(()=>null);
+  if(my!==ac_seq)return;
+  if(!r||!r.items.length||(!force&&r.items.length===1&&r.items[0].t===ed.value.slice(r.start,ed.selectionStart))){ac_close();return;}
+  ac.start=r.start;ac.items=r.items;ac.sel=0;ac_render();
+}
+
+function ac_accept(i){
+  let it=ac.items[i],ed=document.getElementById('lua-editor');
+  if(!it)return;
+  let pos=ed.selectionStart;
+  ed.value=ed.value.slice(0,ac.start)+it.t+ed.value.slice(pos);
+  ed.selectionStart=ed.selectionEnd=ac.start+it.t.length;
+  ac_close();
+  ed.dispatchEvent(new Event('input'));
+}
+
+(function(){
+  const ed=document.getElementById('lua-editor');
+  ac_measure();
+  ed.addEventListener('input',()=>{lua_hl_sync();ac_update(false);});
+  ed.addEventListener('scroll',()=>{
+    let hl=document.getElementById('lua-hl');hl.scrollTop=ed.scrollTop;hl.scrollLeft=ed.scrollLeft;
+    if(ac.open)ac_render();
+  });
+  ed.addEventListener('blur',()=>setTimeout(ac_close,150));
+  ed.addEventListener('keydown',e=>{
+    if(ac.open){
+      if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+        e.preventDefault();e.stopImmediatePropagation();
+        ac.sel=(ac.sel+(e.key==='ArrowDown'?1:ac.items.length-1))%ac.items.length;ac_render();return;
+      }
+      if(e.key==='Enter'||e.key==='Tab'){
+        e.preventDefault();e.stopImmediatePropagation();ac_accept(ac.sel);return;
+      }
+      if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();ac_close();return;}
+    }
+    if(e.ctrlKey&&e.code==='Space'){e.preventDefault();e.stopImmediatePropagation();ac_update(true);}
+  },true);
+  document.getElementById('lua-ac').addEventListener('mousedown',e=>{
+    let el=e.target.closest('.ac-item');
+    if(el){e.preventDefault();ac_accept(parseInt(el.dataset.i));}
+  });
+})();
+
 init();
 </script>
 </body>
 </html>)HTML";
-    return html;
-}
+        return html;
+    }
 
 #ifdef BNM_APP_NAMESPACE_CLOSE
 }

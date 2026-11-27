@@ -19,6 +19,7 @@
 #include "lua_values.hpp"
 #include "main_thread.hpp"
 
+#include "symbols.hpp"
 #include "autodetect/variant_namespace.hpp"
 #ifndef BNM_APP_NAMESPACE_OPEN
 namespace BNM_APP_NAMESPACE {
@@ -43,12 +44,15 @@ struct call_entry {
     std::atomic<int> window_recorded{0};
 };
 
+static const int call_stack_depth = 3;
+
 struct call_record {
     uint64_t seq;
     int64_t t_ms;
     int tid;
     int entry_id;
     uint64_t self;
+    uint64_t stack[call_stack_depth];
     std::string args;
 };
 
@@ -310,6 +314,22 @@ static std::string calls_format_args(const call_entry*, DobbyRegisterContext*, u
 }
 #endif
 
+static void calls_capture_stack(DobbyRegisterContext* ctx, uint64_t* out) {
+    for (int i = 0; i < call_stack_depth; i++) out[i] = 0;
+#if defined(__aarch64__)
+    out[0] = ctx->lr;
+    uint64_t fp = ctx->fp;
+    for (int i = 1; i < call_stack_depth && fp; i++) {
+        uint64_t frame[2] = {0, 0};
+        if ((fp & 7) || !calls_safe_read((uintptr_t)fp, frame, sizeof(frame))) break;
+        out[i] = frame[1];
+        fp = frame[0];
+    }
+#else
+    (void)ctx;
+#endif
+}
+
 static void calls_on_enter(void* address, DobbyRegisterContext* ctx) {
     static thread_local bool in_callback = false;
     if (in_callback) return;
@@ -339,6 +359,7 @@ static void calls_on_enter(void* address, DobbyRegisterContext* ctx) {
     rec.tid = (int)syscall(SYS_gettid);
     rec.entry_id = e->id;
     rec.self = 0;
+    calls_capture_stack(ctx, rec.stack);
     rec.args = calls_format_args(e, ctx, rec.self);
     {
         std::lock_guard<std::mutex> lk(g_call_log_mtx);
@@ -437,6 +458,17 @@ static void calls_collect_class(Class& cls, std::vector<std::pair<MethodInfo*, s
     }
 }
 
+static Class calls_resolve_class(const std::string& asm_name, const std::string& ns, const std::string& cls_name) {
+    Class c = asm_name.empty() ? Class(ns.c_str(), cls_name.c_str()) : Class(ns.c_str(), cls_name.c_str(), Image(asm_name.c_str()));
+    if (c.IsValid()) return c;
+    for (auto& img : Image::GetImages()) {
+        if (!img.IsValid()) continue;
+        Class candidate(ns.c_str(), cls_name.c_str(), img);
+        if (candidate.IsValid()) return candidate;
+    }
+    return c;
+}
+
 static void calls_run_watch_job(std::string asm_name, std::string ns, std::string cls_name) {
     BNM::AttachIl2Cpp();
     std::vector<std::pair<MethodInfo*, std::string>> methods;
@@ -444,17 +476,7 @@ static void calls_run_watch_job(std::string asm_name, std::string ns, std::strin
     try {
         if (!cls_name.empty()) {
             label = ns.empty() ? cls_name : ns + "." + cls_name;
-            Class c = asm_name.empty() ? Class(ns.c_str(), cls_name.c_str()) : Class(ns.c_str(), cls_name.c_str(), Image(asm_name.c_str()));
-            if (!c.IsValid()) {
-                for (auto& img : Image::GetImages()) {
-                    if (!img.IsValid()) continue;
-                    Class tc(ns.c_str(), cls_name.c_str(), img);
-                    if (tc.IsValid()) {
-                        c = tc;
-                        break;
-                    }
-                }
-            }
+            Class c = calls_resolve_class(asm_name, ns, cls_name);
             calls_collect_class(c, methods);
         } else {
             label = asm_name;
@@ -762,6 +784,7 @@ static void register_calls_routes(httplib::Server& svr) {
     });
 
     svr.Get("/api/calls/log", [](const httplib::Request& req, httplib::Response& res) {
+        symbols_ensure();
         uint64_t since = strtoull(req.get_param_value("since").c_str(), nullptr, 10);
         std::vector<call_record> batch;
         uint64_t last = 0;
@@ -792,6 +815,9 @@ static void register_calls_routes(httplib::Server& svr) {
                 snprintf(self_buf, sizeof(self_buf), "0x%llX", (unsigned long long)r.self);
                 if (r.self) item["i"] = self_buf;
                 item["a"] = r.args;
+                nlohmann::json callers = nlohmann::json::array();
+                for (int d = 0; d < call_stack_depth && r.stack[d]; d++) callers.push_back(symbols_describe(r.stack[d]));
+                item["cb"] = callers;
                 items.push_back(item);
             }
         }
@@ -800,6 +826,91 @@ static void register_calls_routes(httplib::Server& svr) {
         j["seq"] = batch.empty() ? last : batch.back().seq;
         j["latest"] = last;
         calls_reply(res, j);
+    });
+
+    svr.Post("/api/calls/watch_method", [](const httplib::Request& req, httplib::Response& res) {
+        BNM::AttachIl2Cpp();
+        nlohmann::json body = nlohmann::json::parse(req.body, nullptr, false);
+        nlohmann::json j;
+        if (!body.is_object()) {
+            j["error"] = "invalid request";
+            calls_reply(res, j, 400);
+            return;
+        }
+        auto get = [&](const char* key) -> std::string {
+            auto it = body.find(key);
+            return (it != body.end() && it->is_string()) ? it->get<std::string>() : "";
+        };
+        std::string name = get("method");
+        std::string addr_text = get("addr");
+        uintptr_t wanted = addr_text.empty() ? 0 : (uintptr_t)strtoull(addr_text.c_str(), nullptr, 16);
+        Class cls = calls_resolve_class(get("asm"), get("ns"), get("cls"));
+        if (!cls.IsValid() || (!wanted && name.empty())) {
+            j["error"] = "class or method not found";
+            calls_reply(res, j, 404);
+            return;
+        }
+        std::string cls_full = symbol_class_name(cls.GetClass());
+        call_target target;
+        int found = 0;
+        for (auto& m : cls.GetMethods(false)) {
+            MethodInfo* mi = m.GetInfo();
+            if (!mi || !mi->name || !mi->methodPointer) continue;
+            if (wanted ? (symbol_strip((uintptr_t)mi->methodPointer) != wanted) : name != mi->name) continue;
+            found++;
+            int id = -1;
+            if (calls_hook_method(mi, cls_full, cls_full + "::" + mi->name, id)) {
+                target.entries.push_back(id);
+                target.label = cls_full + "::" + mi->name;
+            }
+        }
+        if (!found) {
+            j["error"] = "method not found";
+            calls_reply(res, j, 404);
+            return;
+        }
+        if (target.entries.empty()) {
+            j["error"] = "already watched or not hookable";
+            calls_reply(res, j, 409);
+            return;
+        }
+        {
+            std::unique_lock<std::shared_mutex> lk(g_call_mtx);
+            target.id = g_call_next_target++;
+            j["target"] = target.id;
+            j["m"] = target.entries.front();
+            g_call_targets.push_back(std::move(target));
+        }
+        j["ok"] = true;
+        calls_reply(res, j);
+    });
+
+    svr.Get("/api/calls/callers", [](const httplib::Request& req, httplib::Response& res) {
+        symbols_ensure();
+        int method_id = atoi(req.get_param_value("m").c_str());
+        std::unordered_map<uint64_t, int> counts;
+        {
+            std::lock_guard<std::mutex> lk(g_call_log_mtx);
+            for (auto& r : g_call_log)
+                if (r.entry_id == method_id && r.stack[0]) counts[r.stack[0]]++;
+        }
+        std::vector<std::pair<uint64_t, int>> sorted(counts.begin(), counts.end());
+        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+        nlohmann::json list = nlohmann::json::array();
+        for (size_t i = 0; i < sorted.size() && i < 50; i++) list.push_back({{"c", symbols_describe(sorted[i].first)}, {"n", sorted[i].second}});
+        calls_reply(res, {{"callers", list}});
+    });
+
+    svr.Post("/api/calls/unwatch_method", [](const httplib::Request& req, httplib::Response& res) {
+        nlohmann::json body = nlohmann::json::parse(req.body, nullptr, false);
+        int id = (body.is_object() && body.contains("m") && body["m"].is_number_integer()) ? body["m"].get<int>() : -1;
+        std::unique_lock<std::shared_mutex> lk(g_call_mtx);
+        bool ok = id >= 0 && id < (int)g_call_entries.size() && !g_call_entries[id]->dead;
+        if (ok) {
+            calls_unhook_entry(g_call_entries[id].get());
+            for (auto& t : g_call_targets) t.entries.erase(std::remove(t.entries.begin(), t.entries.end(), id), t.entries.end());
+        }
+        calls_reply(res, {{"ok", ok}});
     });
 
     svr.Get("/api/calls/methods", [](const httplib::Request&, httplib::Response& res) {
@@ -826,6 +937,9 @@ static void register_calls_routes(httplib::Server& svr) {
                 item["n"] = e->count.load();
                 item["d"] = e->dropped.load();
                 item["i"] = e->ignored.load();
+                char addr_buf[24];
+                snprintf(addr_buf, sizeof(addr_buf), "%llX", (unsigned long long)symbol_strip((uintptr_t)e->address));
+                item["a"] = addr_buf;
                 list.push_back(item);
             }
         }
