@@ -32,6 +32,8 @@ struct reflect_hit {
     std::string params;
     std::string decl;
     bool is_static = false;
+    bool has_getter = false;
+    bool has_setter = false;
     uintptr_t address = 0;
     Il2CppClass* klass = nullptr;
 };
@@ -171,6 +173,8 @@ static reflect_hit reflect_property_hit(Il2CppClass* k, const PropertyInfo* pi) 
     else hit.type = "?";
     hit.params = std::string(getter ? "get" : "") + (getter && setter ? ";" : "") + (setter ? "set" : "");
     hit.is_static = (getter && (getter->flags & 0x10)) || (setter && (setter->flags & 0x10));
+    hit.has_getter = getter != nullptr;
+    hit.has_setter = setter != nullptr;
     return hit;
 }
 

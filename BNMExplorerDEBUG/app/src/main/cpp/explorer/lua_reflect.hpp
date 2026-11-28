@@ -24,6 +24,12 @@ namespace BNM_APP_NAMESPACE {
         lua_reflect_set_string(L, "assembly", hit.asm_name);
         lua_pushboolean(L, hit.is_static);
         lua_setfield(L, -2, "static");
+        if (hit.kind == "property") {
+            lua_pushboolean(L, hit.has_getter ? 1 : 0);
+            lua_setfield(L, -2, "getter");
+            lua_pushboolean(L, hit.has_setter ? 1 : 0);
+            lua_setfield(L, -2, "setter");
+        }
         lua_pushnumber(L, (double)hit.address);
         lua_setfield(L, -2, "address");
     }

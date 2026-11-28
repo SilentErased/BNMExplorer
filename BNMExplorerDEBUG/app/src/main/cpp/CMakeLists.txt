@@ -11,12 +11,15 @@ set(CMAKE_C_FLAGS_DEBUG "-Os -g0 -ffunction-sections -fdata-sections")
 set(CMAKE_CXX_FLAGS_DEBUG "-Os -g0 -ffunction-sections -fdata-sections")
 add_link_options(-Wl,--gc-sections -Wl,--icf=all)
 
-option(BNM_ENABLE_HTTPS "Enable HTTPS support in the embedded HTTP server" OFF)
+option(BNM_DEFAULT_HTTPS "Enable HTTPS support in the embedded HTTP server by default" ON)
 set(BNM_OPENSSL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/extern/OpenSSL/${ANDROID_ABI}" CACHE PATH "OpenSSL package for the selected Android ABI")
 
-if(BNM_ENABLE_HTTPS)
-    if(NOT EXISTS "${BNM_OPENSSL_ROOT}/include/openssl/ssl.h" OR NOT EXISTS "${BNM_OPENSSL_ROOT}/lib/libssl.a" OR NOT EXISTS "${BNM_OPENSSL_ROOT}/lib/libcrypto.a")
-        message(FATAL_ERROR "BNM_ENABLE_HTTPS is ON, but OpenSSL headers or static libraries were not found under ${BNM_OPENSSL_ROOT}")
+set(BNM_ENABLE_HTTPS OFF)
+if(BNM_DEFAULT_HTTPS)
+    if(EXISTS "${BNM_OPENSSL_ROOT}/include/openssl/ssl.h" AND EXISTS "${BNM_OPENSSL_ROOT}/lib/libssl.a" AND EXISTS "${BNM_OPENSSL_ROOT}/lib/libcrypto.a")
+        set(BNM_ENABLE_HTTPS ON)
+    else()
+        message(WARNING "BNM_DEFAULT_HTTPS is ON, but OpenSSL was not found under ${BNM_OPENSSL_ROOT}; building without HTTPS")
     endif()
 endif()
 
@@ -77,10 +80,14 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         unity_dispatch.cpp
         explorer/explorer_html.cpp
         explorer/lua_docs.cpp
+        explorer/lua_audio.cpp
         Include/autodetect/unity_version.cpp
         Include/autodetect/il2cpp_runtime.cpp
+        extern/audio/stb_vorbis.c
         ${LUA_SOURCES}
 )
+
+set_source_files_properties(extern/audio/stb_vorbis.c PROPERTIES LANGUAGE C)
 
 target_include_directories(${CMAKE_PROJECT_NAME}
         PUBLIC
@@ -88,6 +95,7 @@ target_include_directories(${CMAKE_PROJECT_NAME}
         Include
         explorer
         lua
+        extern/audio
 )
 
 function(add_bnm_variant variant unity_version unity_patch)
@@ -114,6 +122,7 @@ function(add_bnm_variant variant unity_version unity_patch)
             Include
             explorer
             lua
+            extern/audio
     )
     if(BNM_ENABLE_HTTPS)
         target_include_directories(${native_target} PRIVATE ${BNM_OPENSSL_ROOT}/include)

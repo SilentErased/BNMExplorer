@@ -332,6 +332,8 @@ select.inp{padding:0 4px;}
 <symbol id="i-mouse-pointer-click" viewBox="0 0 24 24"><path d="M14 4.1 12 6" /> <path d="m5.1 8-2.9-.8" /> <path d="m6 12-1.9 2" /> <path d="M7.2 2.2 8 5.1" /> <path d="M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z" /></symbol>
 <symbol id="i-network" viewBox="0 0 24 24"><rect x="16" y="16" width="6" height="6" rx="1" /> <rect x="2" y="16" width="6" height="6" rx="1" /> <rect x="9" y="2" width="6" height="6" rx="1" /> <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /> <path d="M12 12V8" /></symbol>
 <symbol id="i-package" viewBox="0 0 24 24"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" /> <path d="M12 22V12" /> <polyline points="3.29 7 12 12 20.71 7" /> <path d="m7.5 4.27 9 5.15" /></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></symbol>
+<symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></symbol>
 <symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1" /> <rect x="5" y="3" width="5" height="18" rx="1" /></symbol>
 <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" /></symbol>
 <symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></symbol>
@@ -513,6 +515,7 @@ const char k_html_b[] = R"HTML( asm</span></div>
         <button class="btn ws-toggle" onclick="ws_toggle_sidebar()"><svg class=i><use href=#i-menu></use></svg></button>
         <span class="ws-title">LuaBNM Console</span>
         <button class="btn btn-grn" onclick="ws_run()"><svg class=i><use href=#i-play></use></svg> Run</button>
+        <label class="chip on" id="run-main-chip" onclick="this.classList.toggle('on');ws_run_main=this.classList.contains('on')" title="Run chunks on the game main thread so Unity calls are safe"><span class="sq"></span>Main thread</label>
         <button class="btn btn-red" onclick="stop_lua()"><svg class=i><use href=#i-square></use></svg> Stop</button>
         <button class="btn btn-red" onclick="reset_lua()"><svg class=i><use href=#i-rotate-ccw></use></svg> Reset</button>
         <span style="flex:1;"></span>
@@ -656,6 +659,19 @@ const char k_html_b[] = R"HTML( asm</span></div>
     </div>
     <div style="padding:6px 10px;"><input class="inp" id="callsMethodsFilter" placeholder="Filter methods..." oninput="calls_render_methods()"></div>
     <div class="modal-body" id="callsMethodsList" style="padding:0;"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="wsPreviewModal" onclick="ws_preview_close()">
+  <div class="modal-box" style="width:640px;max-width:92vw;" onclick="event.stopPropagation()">
+    <div class="modal-hdr">
+      <span id="ws-preview-title" style="font-family:var(--mono);font-size:12px;">preview</span>
+      <div style="display:flex;gap:4px;">
+        <button class="btn" id="ws-preview-dl" title="Download"><svg class=i><use href=#i-download></use></svg></button>
+        <button class="btn btn-red" style="padding:2px 8px;" onclick="ws_preview_close()"><svg class=i><use href=#i-x></use></svg></button>
+      </div>
+    </div>
+    <div id="ws-preview-body" style="padding:16px;background:var(--bg);display:flex;align-items:center;justify-content:center;min-height:200px;"></div>
   </div>
 </div>
 
@@ -1755,12 +1771,20 @@ function ws_render_tree(){
     }
     for(const f of node.files.sort((a,b)=>a.name.localeCompare(b.name))){
       const isLua=f.lua;
+      const kind=ws_file_kind(f.path);
+      const icon=isLua?'i-file-text':kind==='image'?'i-image':kind==='audio'?'i-music':kind==='text'?'i-file-text':'i-package';
+      const editable=isLua||kind==='text';
+      const viewBtn=(kind==='image'||kind==='audio')
+        ?`<button class="ws-ibtn" title="Open" onclick="event.stopPropagation();ws_view_file(this.closest('.ws-row').dataset.path)"><svg class=i><use href=#i-eye></use></svg></button>`
+        :'';
       html+=`<div class="ws-row${ws.active===f.path?' active':''}" style="padding-left:${6+depth*14}px" data-path="${ws_esc(f.path)}" data-lua="${isLua?1:0}" onclick="ws_row_click(this)">`+
-        `<svg class=i><use href=#${isLua?'i-file-text':'i-package'}></use></svg><span class="nm">${ws_esc(f.name)}</span>`+
+        `<svg class=i><use href=#${icon}></use></svg><span class="nm">${ws_esc(f.name)}</span>`+
         `<span class="acts">`+
-        (isLua
+        (editable
           ?`<button class="ws-ibtn" title="Rename" onclick="event.stopPropagation();ws_rename(this.closest('.ws-row').dataset.path)"><svg class=i><use href=#i-pencil></use></svg></button>`
-          :`<button class="ws-ibtn" title="Download" onclick="event.stopPropagation();ws_download(this.closest('.ws-row').dataset.path)"><svg class=i><use href=#i-download></use></svg></button>`)+
+          :'')+
+        viewBtn+
+        (editable?'':`<button class="ws-ibtn" title="Download" onclick="event.stopPropagation();ws_download(this.closest('.ws-row').dataset.path)"><svg class=i><use href=#i-download></use></svg></button>`)+
         `<button class="ws-ibtn" title="Delete" onclick="event.stopPropagation();ws_delete(this.closest('.ws-row').dataset.path,false)"><svg class=i><use href=#i-trash-2></use></svg></button></span></div>`;
     }
   }
@@ -1777,6 +1801,43 @@ function ws_download(path){
   a.remove();
 }
 
+const ws_image_ext=new Set(['png','jpg','jpeg','gif','webp','bmp','svg']);
+const ws_audio_ext=new Set(['wav','ogg','oga','mp3','m4a','aac','flac']);
+const ws_text_ext=new Set(['txt','log','md','json','csv','xml','ini','cfg','conf','yaml','yml']);
+
+function ws_file_ext(path){
+  const n=path.split('/').pop();
+  const i=n.lastIndexOf('.');
+  return i>=0?n.slice(i+1).toLowerCase():'';
+}
+
+function ws_file_kind(path){
+  const e=ws_file_ext(path);
+  if(ws_image_ext.has(e))return'image';
+  if(ws_audio_ext.has(e))return'audio';
+  if(ws_text_ext.has(e))return'text';
+  return null;
+}
+
+function ws_preview_close(){
+  document.getElementById('wsPreviewModal').classList.remove('open');
+  document.getElementById('ws-preview-body').innerHTML='';
+}
+
+function ws_view_file(path){
+  const kind=ws_file_kind(path);
+  const name=path.split('/').pop();
+  const url='/api/ws/raw?view=1&path='+encodeURIComponent(path);
+  const box=document.getElementById('ws-preview-body');
+  if(kind==='image')
+    box.innerHTML='<img src="'+url+'" alt="'+ws_esc(name)+'" style="max-width:100%;max-height:60vh;border-radius:8px;">';
+  else
+    box.innerHTML='<div style="width:100%;padding:10px 0;"><div style="text-align:center;margin-bottom:10px;"><svg class=i style="width:34px;height:34px;color:var(--fg-dim);"><use href=#i-music></use></svg></div><audio controls autoplay style="width:100%;" src="'+url+'"></audio></div>';
+  document.getElementById('ws-preview-title').textContent=name;
+  document.getElementById('ws-preview-dl').onclick=()=>ws_download(path);
+  document.getElementById('wsPreviewModal').classList.add('open');
+}
+
 function ws_row_click(row){
   const path=row.dataset.path;
   if(row.dataset.dir){
@@ -1787,8 +1848,10 @@ function ws_row_click(row){
   }
   const i=path.lastIndexOf('/');
   ws.sel_dir=i>=0?path.substring(0,i):'';
-  if(row.dataset.lua==='0'){ws_download(path);}
-  else ws_open_file(path);
+  const kind=ws_file_kind(path);
+  if(kind==='image'||kind==='audio'){ws_view_file(path);}
+  else if(kind==='text'||row.dataset.lua==='1'){ws_open_file(path);}
+  else{ws_download(path);}
   if(window.innerWidth<=860)document.getElementById('ws-side').classList.remove('show');
 }
 
@@ -1963,12 +2026,13 @@ async function ws_delete(path,is_dir){
   }catch(e){ws_log('Delete failed: '+e.message);}
 }
 
+let ws_run_main=true;
 async function ws_run(path){
   path=path||'main.lua';
   if(!(await ws_save_all()))return;
-  ws_log('> Running '+path);
+  ws_log('> Running '+path+(ws_run_main?' (main thread)':''));
   try{
-    let d=await ws_post('/api/ws/run',{path:path});
+    let d=await ws_post('/api/ws/run',{path:path,main:ws_run_main});
     if(d.output)ws_log(d.output);
   }catch(e){ws_log('Error: '+e.message);}
 }
@@ -2613,9 +2677,18 @@ const lua_api_list=[
   ['get_time','()','core'],['type_name','(value)','core'],
   ['vec2','(x, y)','math'],['vec3','(x, y, z)','math'],['vec4','(x, y, z, w)','math'],['quat','(x, y, z, w)','math'],['color','(r, g, b [, a])','math'],
   ['destroy','(obj)','core'],['is_valid','(obj)','core'],['wrap','(addr, class)','core'],['get_builtin_resource','(type, name)','core'],
-  ['http','','net'],['json','','net'],['fs','','files'],['memory','','core'],['bit','','core'],['base64','','core'],
+  ['http','','net'],['json','','net'],['fs','','files'],['memory','','core'],['bit','','core'],['base64','','core'],['pack','','core'],
+  ['http.get_async','(url, fn)','net'],['http.post_async','(url, body, fn)','net'],['http.request_async','(options, fn)','net'],
+  ['http.set_ssl_verify','(on)','net'],['http.set_ca_file','(path)','net'],
+  ['audio','','audio'],['audio.load','(path_or_bytes)','audio'],['audio.play','(clip, options)','audio'],['audio.stop','(handle)','audio'],
+  ['audio.decode','(path_or_bytes)','audio'],['audio.route_to_mic','(clip, loop)','audio'],['audio.restore_mic','()','audio'],
+  ['dev','','core'],['dev.guard','(fn)','core'],['dev.self_test','()','core'],['dev.info','()','core'],['dev.main_tasks','(on)','core'],
+  ['dev.debug_pcall','(on)','core'],['dev.guard_calls','(on)','core'],['dev.log_path','()','core'],['dev.log_clear','()','core'],
+  ['has_class','(name [, assembly])','core'],
   ['enum_values','(class)','core'],['enum_name','(class, value)','core'],
   ['to_table','(array_or_list)','core'],['make_array','(class, table)','core'],['make_byte_array','(string)','core'],
+  ['make_float_array','(table_or_string)','core'],['array_set','(arr, table [, offset])','core'],['array_set_floats','(arr, values [, offset])','core'],
+  ['array_to_string','(arr)','core'],
   ['hex','(number)','core'],['parse_hex','(string)','core'],['set_timescale','(value)','core'],['get_timescale','()','core'],
   ['log_info','(...)','core'],['log_warn','(...)','core'],['log_error','(...)','core'],['il2cpp_loaded','()','core'],
   ['scene','','core'],['xr','','core']

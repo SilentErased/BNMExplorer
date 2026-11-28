@@ -645,6 +645,7 @@ static void ws_init() {
     ws_make_dirs(ws_zips_dir());
     if (g_ws_zips_global) ws_migrate_zips(g_ws_base + "/zips", g_ws_zips);
     if (fresh) ws_seed_defaults();
+    g_rt_log_path = g_ws_base + "/log.txt";
     g_ws_ready = true;
 }
 

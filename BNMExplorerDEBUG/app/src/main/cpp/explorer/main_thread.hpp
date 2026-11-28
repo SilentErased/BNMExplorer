@@ -154,6 +154,10 @@ static bool mt_on_main_thread() {
     return t != 0 && t == (int)syscall(SYS_gettid);
 }
 
+static bool mt_pumping() {
+    return g_mt_ready.load() && g_mt_tid.load() != 0;
+}
+
 static void mt_post(std::function<bool()> fn, bool urgent) {
     if (!mt_install()) {
         std::thread([fn]() {

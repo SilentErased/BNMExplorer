@@ -4,7 +4,7 @@ const char k_llms_txt[] = R"TXT(# BNMExplorer and LuaBNM
 
 > BNMExplorer runs a web based inspector inside an IL2CPP Unity game on Android or VR. LuaBNM is its embedded Lua 5.1 runtime: scripts can call any IL2CPP class, field, property and method by name, hook native methods with Lua callbacks, read XR controller input, send HTTP and HTTPS requests, parse JSON, read and write workspace files and raw memory. Docs site: https://silenterased.github.io/BNMExplorer/ - the mod itself also serves this exact file at http://DEVICE_IP:8080/llms.txt
 
-This file documents everything: the web console, the startup manager, every LuaBNM function, the limits, the errors and a complete working VR mod menu at the end. Everything here is written against the actual C++ source, so names and behavior match what runs inside the game.
+This file documents everything: the web console, the startup manager, every LuaBNM function, the limits, the errors, a small example UI script at the end and a note for AI assistants on how to treat that example. Everything here is written against the actual C++ source, so names and behavior match what runs inside the game.
 
 ## What BNMExplorer is
 
@@ -41,6 +41,7 @@ Scripts live as files in a workspace folder on the device. The Console tab has a
 - New file / New folder - creates workspace entries. Files can have any extension.
 - Upload - uploads a file of any type into the workspace (1 MB per file limit).
 - Download - saves a workspace file back to your computer.
+- Preview - clicking a file in the tree opens it by type: .lua and text files (.txt, .md, .json, .csv, .xml, .yaml, configs) open in the editor, images (.png, .jpg, .jpeg, .gif, .webp, .bmp, .svg) show a picture preview, audio (.wav, .ogg, .mp3, .m4a, .aac, .flac) opens a player that plays the file straight from the workspace. Anything else downloads.
 - Import ZIP - replaces the whole workspace with the contents of a zip. The old files are deleted, so save your work first.
 - Export ZIP - downloads the workspace as a zip.
 - Save On Device / Device ZIPs - stores and loads zips on the device storage (usually `/sdcard/BNMExplorer/zips/`).
@@ -105,9 +106,23 @@ Do not touch the device screen while the game is frozen - Android can show an Ap
 - One persistent Lua state. Global variables and closures survive between Runs until Reset.
 - Chunk timeout: 5 seconds. Scheduler callback timeout: 1 second per call. A timeout raises the error "script timeout".
 - `print` joins values with tabs. Values returned at the end of a chunk print one per line.
-- Errors come back as "SyntaxError: ..." (compile stage) or "RuntimeError: ..." (runtime). An error inside a task prints "RuntimeError: ..." and kills that task. An error inside a hook callback prints "[Hook N Class::Method] ..." and the original method runs.
+- Errors come back as "SyntaxError: ..." (compile stage) or "RuntimeError: ..." (runtime). Runtime errors carry the source line and a stack traceback, for example:
+```
+RuntimeError: chunk.lua:12: attempt to index a nil value
+stack traceback:
+    chunk.lua:12: in function 'apply'
+    chunk.lua:20: in main chunk
+```
+- An error inside a scheduled task prints `TaskError (task N): ...` with the same traceback and kills that task. An error inside a `main_thread` callback prints `MainThreadError: ...`. An error inside an async http callback prints `AsyncCallbackError: ...`. A hook callback error prints "[Hook N Class::Method] ..." and the original method runs.
+- With `dev.debug_pcall(true)` every `pcall` that catches an error logs `PcallError: ...` to the Output panel and logcat too, so "silent" failures become visible. The returned values of pcall do not change, except that the error string gets the traceback appended.
+- Every line printed to the Output panel also lands in a log file on the device: `<BNMExplorer folder>/log.txt` (usually `/sdcard/BNMExplorer/log.txt`). The file rotates at 2 MB. Read it with `dev.log_path()`, wipe it with `dev.log_clear()`. This survives a game crash, unlike the in-memory Output panel.
 - Output from tasks and hooks goes to an async buffer capped at 65536 characters, oldest lines drop first.
 - Running a new file stops all tasks from the previous run, disables hook callbacks (the native trampolines stay installed but forward to the original methods) and clears the module cache.
+
+Threads, in plain words:
+
+- A chunk started with Run executes on the Unity main thread when the game is already rendering (the Main thread toggle in the console controls this, on by default). That makes Unity calls from top level script code safe. During the startup Manager freeze the chunk runs inline on the frozen main thread, which is the same thread.
+- Scheduler callbacks (`every`, `after`, `on_update`, `on_game_start`) run on a background worker thread by default. Many Unity calls survive that, some crash. Turn on `dev.main_tasks(true)` or install `set_tick_hook` to move task callbacks onto the main thread. With neither, `main_thread(fn)` callbacks also fall back to the worker after 3 seconds and a warning prints once.
 
 ## Value conversion between Lua and IL2CPP
 
@@ -314,6 +329,7 @@ Pumping and threads:
 - The web UI also installs Unity frame hooks for scene browsing (Camera OnPreCull and friends). When those exist, tasks pump on the main thread even without `set_tick_hook`.
 - Only one tick hook can exist and it cannot be removed. Guard it with `has_tick_hook()`.
 - `set_tick_hook` errors: "tick hook is already installed", "class 'X' not found", "method 'Y' without arguments not found", "method 'Y' must return void", "failed to hook 'Y'".
+- `dev.main_tasks(true)` moves all scheduler callbacks onto the Unity main thread once frame hooks exist (the ones the UI installs or your own `set_tick_hook`). Without frame hooks the flag has no effect and tasks keep running on the worker.
 - Re-running a script does not remove old tasks by itself - Run does that for you. When you rerun code manually inside one chunk, call `cancel_all()` first.
 
 ```lua
@@ -409,7 +425,7 @@ set_hook_callback(id, function(self, amount) return 0 end)
 
 `http.request(options) -> response`
 
-Performs a blocking request. Call it from the console, from `main_thread` or from tasks - it blocks the calling thread for up to the timeout. Options table:
+Performs a blocking request. Call it from the console, from `main_thread` or from tasks - it blocks the calling thread for up to the timeout, and on the main thread that means the game freezes for the download. Options table:
 
 - `url` - required, "http://" or "https://"
 - `method` - "GET" (default), "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"
@@ -419,14 +435,55 @@ Performs a blocking request. Call it from the console, from `main_thread` or fro
 - `timeout` - seconds, default 10
 - `follow_redirects` - default true
 
-Successful response: `{ok = true, status, body, headers}` - body is the raw response string, headers maps lowercased names as sent by the server. Failed connection: `{ok = false, error, error_code}`.
+Successful response: `{ok = true, status, body, headers}` - body is the raw response string, headers maps lowercased names as sent by the server. Failed connection: `{ok = false, error, error_code}`. Exactly this table, same keys both ways:
 
-HTTPS needs a build of the mod compiled with `BNM_ENABLE_HTTPS` (OpenSSL linked in). On a plain build an https URL raises a clear error.
+```
+http.get("http://10.0.0.5:9000/ping") ->
+  { ok = true,  status = 200, body = "pong", headers = { ["content-type"] = "text/plain" } }
+http.get("http://10.0.0.99:9000/ping") ->
+  { ok = false, error = "Connection refused", error_code = 5 }
+```
+
+HTTPS is compiled in by default (the CMake option `BNM_DEFAULT_HTTPS` links OpenSSL). On a build without it an https URL raises a clear error.
+
+Certificate verification:
+
+- The statically linked OpenSSL does not see the Android system CA store, so by default every https request fails with `SSL server verification failed` unless a CA file is set or verification is turned off.
+- `http.set_ssl_verify([enabled]) -> boolean` - get or set the global default. `http.set_ssl_verify(false)` makes every later request skip certificate checks. A request can override it per call with the `verify` option field.
+- `http.set_ca_file([path]) -> boolean` - point verification at a PEM bundle. Relative paths resolve inside the workspace, so you can upload a `cacert.pem` (for example the Mozilla bundle from curl.se) into the workspace and call `http.set_ca_file("cacert.pem")` once per session - then `raw.githubusercontent.com` and most other sites verify properly. Call it with no argument to clear.
+- Per request: `{url = "...", verify = false}` or `{url = "...", ca_file = "cacert.pem"}`.
+- For git hosts the whole issue is one pinned certificate chain; `set_ca_file` is the clean fix, `set_ssl_verify(false)` is the quick one.
+
+```lua
+http.set_ssl_verify(false)
+local r = http.get("https://raw.githubusercontent.com/some/repo/main/sounds.txt")
+```
+
+```lua
+on_game_start(function()
+  if fs.exists("cacert.pem") then
+    http.set_ca_file("cacert.pem")
+    print("https verification on with local CA bundle")
+  else
+    http.set_ssl_verify(false)
+  end
+end)
+```
 
 Shortcuts:
 
 - `http.get(url, [headers_table], [timeout_seconds]) -> response`
 - `http.post(url, [body], [headers_table], [content_type]) -> response` - body as a string defaults the content type to "application/json"
+
+Async versions never block and never touch the game frame:
+
+- `http.get_async(url, callback)`
+- `http.post_async(url, body, callback)`
+- `http.request_async(options, callback)`
+- `http.set_ssl_verify([enabled]) -> boolean`
+- `http.set_ca_file([path]) -> boolean`
+
+They return `true` right away and download on a private thread. When the transfer finishes, `callback(response)` runs with the same response table, from the scheduler pump. An error inside the callback prints `AsyncCallbackError: ...` with a traceback and the logcat. Errors that happen before anything is sent (bad url, https without OpenSSL) raise immediately instead.
 
 ```lua
 local r = http.get("http://example.com/api/version")
@@ -439,6 +496,14 @@ if r2.ok then
   local data = json.decode(r2.body)
   print(data and data.name)
 end
+
+http.get_async("http://example.com/big.json", function(r3)
+  if not r3.ok then
+    print("download failed", r3.error)
+    return
+  end
+  print("got", #r3.body, "bytes")
+end)
 ```
 
 ## JSON
@@ -497,6 +562,8 @@ Raw memory access by address. Reads probe the memory first and return nil when u
 - `memory.write_float(addr, value)`
 - `memory.write_double(addr, value)`
 - `memory.write_bytes(addr, data_string)` - up to 65536 bytes
+- `memory.write_floats(addr, values) -> number` - bulk float write. `values` is a table of numbers or a binary string whose length is a multiple of 4. Returns how many floats were written. One memcpy, so a table of 40000 floats takes microseconds instead of 40000 separate calls.
+- `memory.read_floats(addr, count) -> table or nil` - bulk float read, returns `{v1, v2, ...}`, count up to 1000000.
 - `memory.nop(addr, length) -> boolean` - fills whole instructions with ARM64 NOPs (1..1024 bytes), makes the page writable with mprotect and clears the instruction cache
 
 Integer reads are signed, 64 bit values pass through doubles so precision is limited to 2^53 like everywhere else in Lua.
@@ -504,6 +571,9 @@ Integer reads are signed, 64 bit values pass through doubles so precision is lim
 ```lua
 local hp = memory.read32(0x7ABC1230)
 memory.write_float(0x7ABC1234, 99.5)
+memory.write_floats(0x7ABC1234, {0.5, 1, -1, 0.25})
+memory.write_floats(0x7ABC1234, array_to_string(some_float_array))
+local samples = memory.read_floats(arr.addr + 0x20, 48000)
 local name = memory.read_string(0x7ABC1240, 64)
 local data = memory.read_bytes(wrap(0x7ABC1000).addr, 16)
 ```
@@ -553,7 +623,7 @@ Class references also carry per-class reflection:
 
 - `ref:list_methods([filter, inherited]) -> table`
 - `ref:list_fields([filter, inherited]) -> table`
-- `ref:list_properties([filter, inherited]) -> table`
+- `ref:list_properties([filter, inherited]) -> table` - each hit also has `getter` and `setter` booleans
 - `ref:list_members([filter, inherited]) -> table`
 - `ref:list_parents() -> table` - parent class names
 - `ref:list_interfaces() -> table`
@@ -568,11 +638,27 @@ end
 print(dump_class("UnityEngine.GameObject"))
 ```
 
+Property hits carry the accessor flags, which matters on stripped builds where only a setter survives:
+
+```
+find_class("UnityEngine.AudioSource"):list_properties()[1] ->
+  { kind = "property", name = "volume", type = "float",
+    params = "get;set", getter = true, setter = true, static = false, ... }
+find_class("UnityEngine.AudioSource"):list_properties("spatialBlend")[1] ->
+  { name = "spatialBlend", getter = false, setter = true, ... }
+```
+
+Reading and writing members falls back automatically: if a property has no getter but a `get_name` method exists, the read goes through it; same for a missing setter and `set_name`. A property that only has a setter returns an error when you read it (`property 'X' has no getter`) - that means neither a getter nor a `get_X` method survived stripping.
+
 ## Arrays and lists
 
 - `to_table(object) -> table or nil` - converts an IL2CPP array (`T[]`) or `List<T>` into a 1-based Lua table. Elements convert by their element class: numbers, bools, strings, references, structs get boxed.
-- `make_array(element_class, lua_table) -> reference` - creates a real IL2CPP array. Elements can be references, strings, numbers (numeric element classes) or boxed structs. Pass the result anywhere an array parameter is expected or return it from a hook.
+- `make_array(element_class, lua_table) -> reference` - creates a real IL2CPP array. Every element type writes its exact width: `System.Single` and `System.Double` keep their fractional part (older builds truncated floats to whole numbers and every value under 1 came back as 0 - fixed), integers truncate toward zero, strings make managed strings, references copy the pointer, structs copy from a boxed struct or raw address, nil zeros the slot. Pass the result anywhere an array parameter is expected or return it from a hook.
 - `make_byte_array(data) -> reference` - a `byte[]` from a Lua string (binary safe) or a table of numbers.
+- `make_float_array(values) -> reference` - a `float[]` from a table of numbers or from a binary string of little-endian 4 byte floats (for example an `audio.decode` data string).
+- `array_set(arr, table, [offset]) -> number` - writes the table into an existing IL2CPP array starting at `offset` (default 0). Same element rules as `make_array`. Returns the element count written. Errors when the table does not fit.
+- `array_set_floats(arr, values, [offset]) -> number` - writes floats into a `float[]` or `double[]` fast. `values` is a table of numbers or a binary string (multiple of 4 bytes). Returns the count written.
+- `array_to_string(arr) -> string` - raw little-endian bytes of a numeric or bool array as a Lua string. Reference arrays error. Handy to stash an array in a file, in `fs.write`, or to pipe it into `memory.write_floats` and back.
 
 ```lua
 local bodies = to_table(find_objects_of_type("UnityEngine.Rigidbody"))
@@ -580,6 +666,24 @@ for i, body in ipairs(bodies) do print(i, body.name) end
 
 local names = make_array("System.String", {"a", "b", "c"})
 some_ref:SetNames(names)
+
+local arr = make_array("System.Single", {0.5, 1, -1, 0.25})
+print(table.concat(to_table(arr), " "))    -- 0.5 1 -1 0.25
+
+local big = {}
+for i = 1, 32000 do big[i] = math.sin(i / 10) * 0.9 end
+local fa = make_float_array(big)
+local peak = 0
+for _, v in ipairs(to_table(fa)) do
+  local a = math.abs(v)
+  if a > peak then peak = a end
+end
+print(#to_table(fa), peak)                 -- 32000   0.9 (a fraction off)
+
+array_set_floats(fa, big)                  -- refill without allocating
+local bin = array_to_string(fa)            -- 128000 raw bytes
+fs.write("sine.bin", bin)
+local copy = make_float_array(fs.read("sine.bin"))
 ```
 
 ## XR input
@@ -608,6 +712,127 @@ if xr.get_bool_feature("grip_button", "left") then
 end
 ```
 
+## Audio
+
+Native wav, ogg and mp3 decoding in the mod, so no UnityWebRequestMultimedia, no Lua side parsing and no stripped build problems. Decoders: dr_wav, stb_vorbis, dr_mp3. `audio.formats()` returns `{"wav", "ogg", "mp3"}`.
+
+Every function takes either a workspace path (`fs.read` is used under the hood) or raw bytes of the whole file as a Lua string. Workspace files cap at 1 MB, inline bytes cap at 8 MB. Decoded output caps at 32 million samples (about 5 minutes of stereo 48 kHz) and errors above that.
+
+- `audio.decode(path_or_bytes) -> table or nil, error` - decodes and returns `{data, rate, channels, frames}`. `data` is a binary Lua string of interleaved little-endian float32 samples (frames times channels of them), not a Lua table - a 3 minute song would be 16 million Lua numbers otherwise.
+- `audio.load(path_or_bytes, [name]) -> clip or nil, error` - decodes, creates a real `UnityEngine.AudioClip` with `AudioClip.Create(name, frames, channels, rate, false)` and fills it with `SetData`. Returns the clip reference.
+- `audio.play(clip, [options]) -> handle or nil, error` - creates a GameObject `LuaBNM_Audio` with an AudioSource, wires the clip and calls `Play`. Options: `volume` (default 1), `loop` (default false), `spatial_blend` (default 0, so 2D), `parent` (a GameObject reference to parent the source under). The handle is a plain table `{clip = ..., src = ..., go = ...}` - fields are references, keep it or rebuild it, both work.
+- `audio.stop(handle) -> boolean, error` - stops the source and destroys the GameObject.
+- `audio.route_to_mic(clip, [loop]) -> boolean, error` - Gorilla Tag style voice chat: finds `GorillaTagger.Instance.myRecorder`, sets `SourceType = 1`, `AudioClip = clip`, `LoopAudioClip = loop` and calls `RestartRecording(true)`. Your clip then plays into the microphone others hear. Field names are looked up dynamically, a game that renamed them errors with a clear message instead of crashing.
+- `audio.restore_mic() -> boolean, error` - puts the recorder back: SourceType 0, no clip, no loop.
+
+Unity requires clip and source work on the main thread. `audio.load`, `audio.play`, `audio.stop`, `audio.route_to_mic` and `audio.restore_mic` detect when they are off it and post the work to the main thread, waiting up to 10 seconds. Calling them from a plain task works while frame hooks exist (UI browsing or `set_tick_hook`). Calling them during the startup freeze errors with a timeout message because no frame pumps yet - run them after `on_game_start` or from the console.
+
+Failures read like this:
+
+```
+audio.load("sounds/broken.wav") -> nil, "wav decode failed"
+audio.route_to_mic(clip)         -> nil, "GorillaTagger not found in this game"   (non Gorilla Tag game)
+```
+
+```lua
+on_game_start(function()
+  local clip, err = audio.load("Custom_Sounds/test.wav")
+  if not clip then
+    print("load failed", err)
+    return
+  end
+  local handle = audio.play(clip, { volume = 1, spatial_blend = 0 })
+  print("playing", is_valid(handle.src), handle.src.clip == clip)
+
+  after(5, function() audio.stop(handle) end)
+end)
+```
+
+A soundboard that plays into voice chat:
+
+```lua
+local current = nil
+
+function play_to_mic(path, loop)
+  if current then audio.stop(current) end
+  local clip, err = audio.load(path)
+  if not clip then return nil, err end
+  local ok, rerr = audio.route_to_mic(clip, loop)
+  if not ok then return nil, rerr end
+  current = { clip = clip }
+  return current
+end
+
+function stop_mic()
+  audio.restore_mic()
+  current = nil
+end
+```
+
+## Binary data: string.pack and string.unpack
+
+Lua 5.1 has no packing, so LuaBNM adds it. The same functions exist as `pack.pack`, `pack.unpack` and as `string.pack`, `string.unpack`. Format characters: `<` little endian (default), `>` big endian, `=` little endian, `x` one zero pad byte, `b`/`B` signed/unsigned byte, `h`/`H` 2 bytes, `i`/`I` 4 bytes or `i3`/`I5` style 1..8 bytes, `l`/`L` 8 bytes, `f` 4 byte float, `d` 8 byte double, `s` a 4 byte length followed by the string bytes.
+
+- `string.pack(fmt, ...) -> string` - packs values left to right. Extra values error, missing values error.
+- `string.unpack(fmt, data, [init]) -> value..., next_position` - reads values left to right, returns everything plus the 1-based position after the last consumed byte. A short string errors with "string too short".
+
+```lua
+local header = string.pack("<I4fH", 123, 60.0, 2)
+-- 4 bytes int, 4 bytes float, 2 bytes short -> 10 bytes
+local a, b, c, next = string.unpack("<I4fH", header)
+print(a, b, c, next)                        -- 123   60   2   11
+
+local packet = string.pack("<Ih", #name) .. name
+local len, pos = string.unpack("<I", packet)
+local name2 = packet:sub(pos, pos + len - 1)
+
+local floats = string.pack("<fff", 0.5, -1, 2.25)
+local arr = make_float_array(floats)        -- straight into an IL2CPP float[]
+```
+
+## dev - debugging tools
+
+- `dev.info() -> table` - `{tasks, main_tasks, debug_pcall, guard_calls, tick_hook, main_pumping, worker, on_main_thread}`. `on_main_thread` is the cheapest way to check which thread your code is on right now.
+- `dev.debug_pcall([on]) -> boolean` - get or set the pcall logging flag from "Lua runtime facts".
+- `dev.main_tasks([on]) -> boolean` - get or set the run-tasks-on-main-thread flag.
+- `dev.guard_calls([on]) -> boolean` - get or set the crash guard for IL2CPP method calls. When on, a method call that segfaults inside IL2CPP surfaces as the Lua error `native crash (signal) inside 'MethodName'; the call was aborted` instead of killing the game. Off by default; it wraps every call in a signal checkpoint, so leave it off in hot paths.
+- `dev.guard(fn, ...) -> ok, result_or_error` - runs `fn` in a crash sandbox one level deep: a native segfault inside becomes `ok = false` with a text error instead of a dead game, and normal returns come back as `ok = true` plus the results. A signal handler is installed process wide the first time any guard runs.
+```lua
+local ok, result = dev.guard(function() return risky_ref:SomeNativeCall() end)
+if not ok then print("survived", result) end
+```
+- `dev.self_test() -> table` - array and float integrity checks running against the real IL2CPP heap: `{small, small_ok, big_count, big_peak, float_string, float_string_ok, all_ok}`. `small` is the read back `{0.5, 1, -1, 0.25}`; `big_count` is 32000 and `big_peak` should be near 0.9. Run it once after a new game build if arrays behave strange.
+- `dev.log_path() -> string` - the log file path, empty when the device allows no writes.
+- `dev.log_clear()` - deletes the log file.
+
+```lua
+on_game_start(function()
+  local t = dev.self_test()
+  print("selftest", t.all_ok, t.small_ok, t.big_count, t.big_peak)
+end)
+```
+
+## Introspection and stripped builds
+
+Games strip assemblies. In one Gorilla Tag style build `UnityEngine.Networking.UnityWebRequestMultimedia` simply does not exist, and only `UnityWebRequest`, `UnityWebRequestAsyncOperation`, `UnityWebRequestMethod` and `UnityWebRequestError` survived from that namespace. `find_class` on a missing class returns an invalid reference instead of raising, so scripts that assume a class exists hang silently. Two tools fix that:
+
+- `has_class(full_name, [assembly_name]) -> boolean` - true when the class exists right now.
+- `list_assemblies() -> table` and `list_classes([path, limit]) -> table` - list what did survive.
+
+```lua
+if not has_class("UnityEngine.AudioClip") then
+  error("this build has no AudioClip, audio is impossible here")
+end
+
+if not has_class("UnityEngine.Networking.UnityWebRequestMultimedia") then
+  print("no multimedia downloader, using audio.* instead")
+end
+```
+
+Stripping also eats property accessors. Typical damage seen in the wild: `spatialBlend` and `outputAudioMixerGroup` on AudioSource ship with only a setter, `AudioListener.volume`, `AudioSource.ignoreListenerVolume` and `ignoreListenerPause` are gone entirely, while `AudioListener.pause` reads fine. The member lookup falls back to `get_X` / `set_X` methods automatically, and `list_properties` shows `getter` / `setter` booleans so a script can check before it reads. Writing a getter-only property still errors, and reading a setter-only property errors with `property 'X' has no getter`.
+
+Facts from one real Gorilla Tag style build, useful as expectations: output sample rate 48000, speaker mode 2, about 44 AudioSources in the scene with 15 playing, two AudioListeners (the one on `Main Camera` disabled, a separate `AudioListener` object enabled), `GorillaLocomotion.Player` exists while `GTPlayer` does not, and the enabled listener object is named exactly `AudioListener`.
+
 ## Utility functions
 
 - `hex(number) -> string` - formats as "0x..."
@@ -616,6 +841,7 @@ end
 - `get_timescale() -> number`
 - `log_info(...)`, `log_warn(...)`, `log_error(...)` - like print but also writes to the Android logcat with a matching priority
 - `il2cpp_loaded() -> boolean` - true once BNM finished loading IL2CPP (always true inside a working script)
+- `has_class(full_name, [assembly_name]) -> boolean` - does this IL2CPP class exist in this build (see "Introspection and stripped builds")
 - `destroy(object_or_address, [delay])` - destroy a Unity object
 
 Prelude globals defined before every script:
@@ -662,6 +888,7 @@ Core and values:
 Classes and objects:
 
 - `find_class(full_name, [assembly_name]) -> reference`
+- `has_class(full_name, [assembly_name]) -> boolean`
 - `assembly(name) -> assembly helper`
 - `get_builtin_resource(type, path) -> reference or nil`
 - `destroy(object_or_address, [delay_seconds])`
@@ -706,6 +933,9 @@ Networking and data:
 - `http.request(options) -> response`
 - `http.get(url, [headers, timeout]) -> response`
 - `http.post(url, [body, headers, content_type]) -> response`
+- `http.get_async(url, callback)`
+- `http.post_async(url, body, callback)`
+- `http.request_async(options, callback)`
 - `json.encode(value) -> string`
 - `json.decode(text) -> value, error`
 - `fs.list([dir]) -> table`
@@ -717,6 +947,8 @@ Networking and data:
 - `fs.mkdir(path) -> boolean`
 - `base64.encode(data) -> string`
 - `base64.decode(text) -> string`
+- `string.pack(fmt, ...) -> string`, `string.unpack(fmt, data, [init]) -> values..., pos`
+- `pack.pack(fmt, ...) -> string`, `pack.unpack(fmt, data, [init]) -> values..., pos`
 
 Memory and bits:
 
@@ -735,6 +967,8 @@ Memory and bits:
 - `memory.write_float(addr, value)`
 - `memory.write_double(addr, value)`
 - `memory.write_bytes(addr, data)`
+- `memory.write_floats(addr, values) -> number`
+- `memory.read_floats(addr, count) -> table or nil`
 - `memory.nop(addr, length) -> boolean`
 - `bit.band(a, ...) -> number`
 - `bit.bor(a, ...) -> number`
@@ -759,6 +993,10 @@ Reflection:
 - `to_table(object) -> table or nil`
 - `make_array(element_class, table) -> reference`
 - `make_byte_array(data) -> reference`
+- `make_float_array(table_or_string) -> reference`
+- `array_set(arr, table, [offset]) -> number`
+- `array_set_floats(arr, values, [offset]) -> number`
+- `array_to_string(arr) -> string`
 
 Reference and handle members (colon syntax):
 
@@ -798,6 +1036,27 @@ XR:
 - `xr.get_float_feature(name, side) -> number`
 - `xr.get_vector2_feature(name, side) -> vector`
 - `xr.send_haptic_impulse(side, amplitude, duration) -> boolean`
+
+Audio:
+
+- `audio.decode(path_or_bytes) -> table or nil, error`
+- `audio.load(path_or_bytes, [name]) -> clip or nil, error`
+- `audio.play(clip, [options]) -> handle or nil, error`
+- `audio.stop(handle) -> boolean, error`
+- `audio.route_to_mic(clip, [loop]) -> boolean, error`
+- `audio.restore_mic() -> boolean, error`
+- `audio.formats() -> table`
+
+dev:
+
+- `dev.info() -> table`
+- `dev.debug_pcall([on]) -> boolean`
+- `dev.main_tasks([on]) -> boolean`
+- `dev.guard_calls([on]) -> boolean`
+- `dev.guard(fn, ...) -> ok, result_or_error`
+- `dev.self_test() -> table`
+- `dev.log_path() -> string`
+- `dev.log_clear()`
 
 Utility:
 
@@ -845,6 +1104,59 @@ on_game_start(function()
 end)
 ```
 
+Attaching UI to a hand without knowing the exact class layout - try the real class first, then fall back to object names, and cache both:
+
+```lua
+local hand_cache = {}
+
+local function hand_transform(side)
+  local cached = hand_cache[side]
+  if is_valid(cached) then return cached end
+  local player = find_class("GorillaLocomotion.Player").Instance
+  if is_valid(player) then
+    local field = side == "right" and "rightHandTransform" or "leftHandTransform"
+    if player[field] then
+      hand_cache[side] = player[field]
+      return hand_cache[side]
+    end
+  end
+  local obj = game_object.Find(side == "right" and "RightHand Controller" or "LeftHand Controller")
+  if is_valid(obj) then
+    hand_cache[side] = obj.transform
+    return obj.transform
+  end
+  return nil
+end
+```
+
+Streaming a long sound when a single huge `audio.load` would take too long - decode once, then feed `SetData` in 4096 frame slices; one small float array per slice, no Lua table ever holds the samples:
+
+```lua
+on_game_start(function()
+  local info = audio.decode("Custom_Sounds/long.wav")
+  if not info then return end
+  local clip = find_class("UnityEngine.AudioClip"):Create("stream", info.frames, info.channels, info.rate, false)
+  local pos = 0
+  every(0, function()
+    local total = info.frames * info.channels
+    local left = total - pos
+    if left <= 0 then return end
+    local n = math.min(4096 * info.channels, left)
+    local part = make_float_array(info.data:sub(pos * 4 + 1, (pos + n) * 4))
+    clip:SetData(part, pos / info.channels)
+    pos = pos + n
+  end)
+end)
+```
+
+Surviving a crashy IL2CPP call while testing an unknown game:
+
+```lua
+dev.guard_calls(true)
+local ok = dev.guard(function() return weird_ref:ExecuteNativeStuff() end)
+print("still alive", ok)
+```
+
 ## Troubleshooting
 
 - "member 'X' not found" - wrong name or the member lives on another class in the hierarchy. Inspect with `ref:get_class()`, `ref:class_info()` and `ref:list_members()`.
@@ -853,853 +1165,133 @@ end)
 - "too many integer/float arguments for a register hook" - the method passes arguments on the stack, hooks only cover register arguments.
 - "no overload of 'X' matches that signature" - pass the right selector. The error lists every overload.
 - "script timeout" - a chunk or callback ran past its limit. Move long loops into `every()` tasks.
+- "property 'X' has no getter" - the build stripped the getter and no `get_X` method survived. Check `list_properties` for the `getter` boolean before reading.
+- "GorillaTagger not found in this game" or "myRecorder is not available" - `audio.route_to_mic` needs a Gorilla Tag style recorder with those names; a renamed or different game cannot be routed blindly.
+- "timed out waiting for the main thread" - an `audio.*` call ran while no frame hooks pump (startup freeze, paused game). Move it after `on_game_start`.
+- "wav decode failed" / "ogg decode failed" / "unknown audio format" - the file is not what its name says, or it is DRM'd / exotic. Check with `audio.decode` first, it returns the same error text.
+- Nothing happens, no error anywhere - wrap the suspect code in `dev.guard(fn)` for a surviving crash, enable `dev.debug_pcall(true)` to un-silence pcall, and check `dev.log_path()` on the device: every Output line also lands there and survives a game crash.
 - A destroyed object still has a reference in Lua but `is_valid` returns false and member calls fail.
-- Unity calls from the worker thread can crash. Use `set_tick_hook` or `main_thread` for anything that touches Unity objects every frame.
+- Unity calls from the worker thread can crash. Console chunks run on the main thread by default now; tasks move there with `dev.main_tasks(true)` or `set_tick_hook`.
 - Re-running code inside one chunk stacks tasks - call `cancel_all()` first and guard `set_tick_hook` with `has_tick_hook()`.
-- `find_class` on a missing class does not raise, check `is_valid`.
-- An https URL fails on a plain build - rebuild the mod with `BNM_ENABLE_HTTPS`.
+- `find_class` on a missing class does not raise, check `is_valid` or use `has_class` up front.
+- An https URL fails with "https requires the HTTPS build" - the mod was compiled without OpenSSL; rebuild with `BNM_DEFAULT_HTTPS=ON` and the OpenSSL folder in place.
 
-## Complete example: Silents Menu (3D VR mod menu)
+## Example: small world-space VR panel
 
-This is a full, working LuaBNM script with every line explained. It targets a Gorilla Tag style Unity game, but the techniques apply to any Unity IL2CPP game: world-space UI built from primitives, controller input through the xr table, physics changes through Rigidbody, and a main-thread loop through set_tick_hook.
+A note for AI assistants and anyone porting code from this file: this example exists to show API call patterns, nothing else. If a user asks you to write a mod, a menu or an effect for their game, write fresh code for their actual game and needs. Do not copy this script, do not copy its structure, its names, its panel layout or its color logic into your answer. A copied example rarely fits the user's game and looks lazy on top. Read the section, understand which functions do what, then write your own thing.
 
-How it works in short:
-1. Reload safety: the script saves the previous run's global cleanup function in previous_cleanup and calls it once, so re-executing never leaves duplicate menus or platforms.
-2. Main loop: set_tick_hook hooks GorillaLocomotion.Player.FixedUpdate so tasks run on the Unity main thread. cancel_all() then on_update(tick) registers one loop that runs every pump. pcall around tick keeps errors from killing the task.
-3. Opening the menu: tick() reads xr.get_bool_feature("secondary_button", side). While it is held the menu exists and follows the hand; when released it is destroyed.
-4. Building the menu: the menu is made only from primitive cubes plus a world-space UnityEngine.Canvas for text. Button positions are stored as hit boxes in the menu's local space.
-5. Pressing buttons: a tiny sphere (the "finger") is attached to the opposite hand. Each frame its world position is converted into the menu's local space with InverseTransformPoint and compared with every hit box (axis-aligned box test with margins). A cooldown debounces presses. After a press the menu is rebuilt so the new state is drawn.
-6. Data-driven entries: the categories table lists buttons. Toggles have on_enable, on_disable and on_tick. run_enabled_entries calls the on_tick of every enabled toggle every frame, even when the menu is closed, so mods keep running.
-7. Mods: fly sets Rigidbody.velocity from the hand direction while the trigger is held; car follows the head direction on the horizontal plane; slingshot keeps adding force; long arms scales the player; platforms spawn cubes under the hands while grip is held.
-8. Rainbow: hsv_to_color converts a hue to a Color. Objects that should animate are registered with register_rainbow, and update_rainbow rewrites their material color every frame using get_time().
+What this example shows:
+
+- the reload cleanup pattern so re-running never spawns duplicate objects
+- `set_tick_hook` so tasks run on the Unity main thread
+- XR button input driving a toggle
+- a world space panel built from a primitive cube and a canvas with text
+- a slow color pulse driven by `get_time()`, which is intentionally different from any rainbow effect - one hue shifting through the whole wheel makes scripts look identical to each other
+- a short beep through the `audio` library
+
+The panel toggles `Time.timeScale` between 1 and 0.25 when the user squeezes the left grip. Everything is plain functions, no framework, so each piece is easy to lift into your own script.
 
 ```lua
--- ============================================================================
--- SILENTS MENU - a 3D VR mod menu written in LuaBNM
--- ============================================================================
--- What it does:
---   * Hold the secondary button (B/Y) on the menu hand to show a world-space
---     menu attached to that hand.
---   * Touch a menu button with a small sphere on the OTHER hand to press it.
---   * Buttons are toggles (movement mods) or actions (change category/page).
---   * Background and enabled buttons shimmer through a smooth rainbow.
---
--- How it runs:
---   * A native hook on GorillaLocomotion.Player.FixedUpdate pumps Lua tasks on
---     the Unity main thread. A single on_update task runs tick() every pump.
---   * tick() polls the controller, runs enabled mods, and builds/updates/
---     destroys the menu objects.
--- ============================================================================
+local panel_root = nil
+local panel_text = nil
+local pulse_material = nil
+local last_grip = false
 
--- Global left behind by a previous run of this script (nil on the first run).
--- Calling it destroys the old menu and spawned platforms so reloading the
--- script never leaves stale objects in the scene.
-local previous_cleanup = silents_menu_cleanup
+local pulse_a = color(0.18, 0.30, 0.18, 0.9)
+local pulse_b = color(0.10, 0.16, 0.10, 0.9)
 
--- ---------------------------------------------------------------------------
--- Configuration
--- ---------------------------------------------------------------------------
-local menu_title = "SILENTS MENU"
--- Size of the invisible root cube. Children are positioned in this cube's
--- LOCAL space, so every button position below is multiplied by this scale.
-local menu_scale = vec3(0.1, 0.3, 0.3825)
--- Size of the visible background cube relative to the root.
-local menu_size = vec3(0.1, 1.0, 1.0)
-local buttons_per_page = 8
--- Seconds to ignore presses after one registers (debounce).
-local press_cooldown = 0.4
--- Extra tolerance added around each button's hit box, per local axis.
-local press_margin_x = 0.05
-local press_margin_y = 0.0167
-local press_margin_z = 0.0131
--- Rainbow: hue cycles per second, and hue offset between neighbouring buttons.
-local rainbow_speed = 0.15
-local rainbow_spread = 0.12
-local dark_button = color(0.03, 0.03, 0.03, 1)
-local white_text = color(1, 1, 1, 1)
--- Index 1 = normal text, index 2 = text on enabled toggles.
-local text_colors = { white_text, white_text }
--- Shaders tried in order; the first that exists is used so colors show up.
-local shader_names = { "Unlit/Color", "Universal Render Pipeline/Lit", "Sprites/Default" }
-local identity = quat(0, 0, 0, 1)
-
--- ---------------------------------------------------------------------------
--- State shared by the whole script
--- ---------------------------------------------------------------------------
-local state = {
-  menu = nil,            -- root GameObject of the menu (nil when closed)
-  canvas_obj = nil,      -- world-space canvas that holds all text labels
-  reference = nil,       -- small sphere on the other hand used as the "finger"
-  fps_text = nil,        -- Text component of the FPS label
-  hit_boxes = {},        -- list of pressable areas, rebuilt with the menu
-  rainbow_items = {},    -- objects whose color is animated every frame
-  category = "main",     -- which entry in `categories` is shown
-  page = 0,              -- zero-based page inside the category
-  right_handed = false,  -- menu on right hand instead of left
-  disconnect_button = true,
-  fps_counter = true,
-  last_press = 0,        -- time of the last registered press
-  fps_value = 0,
-  fps_time = nil,
-  fps_frames = 0
-}
-
-local visible_shader                       -- cached result of get_visible_shader
-local hands = {}                           -- cached controller GameObjects
-local player_object                       -- cached player GameObject
-local platform_store = { left = nil, right = nil }  -- spawned thin platforms
-local thick_store = { left = nil, right = nil }     -- spawned thick platforms
-local set_category                         -- forward declarations: the
-local recreate_menu                        -- functions are defined later
-
--- ---------------------------------------------------------------------------
--- Color helpers (rainbow)
--- ---------------------------------------------------------------------------
-
--- Converts hue/saturation/value (all 0..1) into a UnityEngine.Color.
--- The hue wheel is split into 6 sectors; inside each sector one channel is
--- max, one is min and one fades linearly.
-local function hsv_to_color(h, s, v, a)
-  h = h % 1
-  local sector = math.floor(h * 6)
-  local f = h * 6 - sector
-  local p = v * (1 - s)
-  local q = v * (1 - f * s)
-  local t = v * (1 - (1 - f) * s)
-  sector = sector % 6
-  if sector == 0 then return color(v, t, p, a) end
-  if sector == 1 then return color(q, v, p, a) end
-  if sector == 2 then return color(p, v, t, a) end
-  if sector == 3 then return color(p, q, v, a) end
-  if sector == 4 then return color(t, p, v, a) end
-  return color(v, p, q, a)
+local function cleanup_old()
+  if is_valid(panel_root) then destroy(panel_root) end
+  panel_root = nil
+  panel_text = nil
+  pulse_material = nil
 end
 
--- The current rainbow color. Hue is driven by get_time() so every caller
--- sees the same smooth cycle; `offset` shifts the hue per object.
-local function rainbow_color(offset, value, alpha)
-  return hsv_to_color(get_time() * rainbow_speed + offset, 1, value, alpha)
-end
+cleanup_old()
 
--- ---------------------------------------------------------------------------
--- Rendering helpers
--- ---------------------------------------------------------------------------
+local function build_panel(position)
+  local root = create_primitive(primitive_type.cube, pulse_a, "Unlit/Color")
+  root.name = "LuaExamplePanel"
+  root.transform:SetParent(nil, false)
+  root.transform.position = position
+  root.transform.localScale = vec3(0.22, 0.14, 0.01)
 
--- Finds a shader that exists in this game (result is cached).
-local function get_visible_shader()
-  if visible_shader then return visible_shader end
-  for _, name in ipairs(shader_names) do
-    local found = shader.Find(name)
-    if found then
-      visible_shader = found
-      return found
-    end
-  end
-  return nil
-end
-
--- Gives an object a visible shader and a color. Returns the material so the
--- caller can keep animating it. Returns nil if the object has no renderer.
-local function apply_color(obj, col)
-  local rend = obj:get_component("UnityEngine.Renderer")
-  if not is_valid(rend) then return nil end
-  local mat = rend.material
-  local found = get_visible_shader()
-  if found then mat.shader = found end
-  mat.color = col
-  return mat
-end
-
--- Colors an object with the rainbow AND remembers it so update_rainbow can
--- keep changing its color. `value` = brightness, `alpha` = opacity.
-local function register_rainbow(obj, offset, value, alpha)
-  local mat = apply_color(obj, rainbow_color(offset, value, alpha))
-  if mat then
-    state.rainbow_items[#state.rainbow_items + 1] = { obj = obj, mat = mat, offset = offset, value = value, alpha = alpha }
-  end
-end
-
--- Called every frame while the menu is open: rewrites the color of every
--- registered object. Objects that were destroyed are skipped via is_valid.
-local function update_rainbow()
-  for _, item in ipairs(state.rainbow_items) do
-    if is_valid(item.obj) then
-      item.mat.color = rainbow_color(item.offset, item.value, item.alpha)
-    end
-  end
-end
-
--- Destroys a component of the given type on an object, if it has one.
-local function remove_component(obj, type_name)
-  local comp = obj:get_component(type_name)
-  if is_valid(comp) then destroy(comp) end
-end
-
--- ---------------------------------------------------------------------------
--- Font loading
--- ---------------------------------------------------------------------------
-
--- Tries built-in font files first, then an OS font. Every attempt is wrapped
--- in pcall because missing resources raise errors instead of returning nil.
-local function load_font()
-  local font_class = find_class("UnityEngine.Font")
-  for _, name in ipairs({ "Arial.ttf", "LegacyRuntime.ttf" }) do
-    local ok, font = pcall(get_builtin_resource, font_class, name)
-    if ok and is_valid(font) then return font end
-  end
-  local ok, font = pcall(function() return font_class.CreateDynamicFontFromOSFont("Arial", 16) end)
-  if ok and is_valid(font) then return font end
-  return nil
-end
-
-local font
-local font_tried = false
-
--- Loads the font only once, even if it failed (avoids retrying every frame).
-local function ensure_font()
-  if font_tried then return end
-  font_tried = true
-  font = load_font()
-  print("font_loaded", tostring(font ~= nil))
-end
-
--- ---------------------------------------------------------------------------
--- Rotation math (Lua has no Quaternion.Euler here, so it is built by hand)
--- ---------------------------------------------------------------------------
-
--- Hamilton product of two quaternions given as {x,y,z,w} tables.
-local function quat_multiply(a, b)
-  return {
-    x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
-    y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
-    z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
-    w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z
-  }
-end
-
--- Euler angles in degrees -> quaternion, using Unity's Z * X * Y order
--- (rotate around Z first, then X, then Y).
-local function euler_to_quat(ex, ey, ez)
-  local rx = math.rad(ex) * 0.5
-  local ry = math.rad(ey) * 0.5
-  local rz = math.rad(ez) * 0.5
-  local qx = { x = math.sin(rx), y = 0, z = 0, w = math.cos(rx) }
-  local qy = { x = 0, y = math.sin(ry), z = 0, w = math.cos(ry) }
-  local qz = { x = 0, y = 0, z = math.sin(rz), w = math.cos(rz) }
-  local q = quat_multiply(quat_multiply(qy, qx), qz)
-  return quat(q.x, q.y, q.z, q.w)
-end
-
--- Rotation applied to every text label so it faces the player when the menu
--- is held on the hand.
-local text_rotation = euler_to_quat(180, 90, 90)
-
--- ---------------------------------------------------------------------------
--- Scene lookups (cached, always re-validated)
--- ---------------------------------------------------------------------------
-
--- Returns the "LeftHand Controller" / "RightHand Controller" object.
--- Scene lookups are slow, so the object is cached and only searched again
--- if the cached one was destroyed (for example after a scene change).
-local function get_hand(side)
-  if not is_valid(hands[side]) then
-    hands[side] = game_object.Find(side == "left" and "LeftHand Controller" or "RightHand Controller")
-  end
-  if is_valid(hands[side]) then return hands[side] end
-  return nil
-end
-
-local function get_player()
-  if not is_valid(player_object) then
-    player_object = game_object.Find("GorillaPlayer")
-  end
-  if is_valid(player_object) then return player_object end
-  return nil
-end
-
--- The player's Rigidbody; mods set its velocity to move the player.
-local function get_player_body()
-  local player = get_player()
-  if not player then return nil end
-  local body = player:get_component("UnityEngine.Rigidbody")
-  if is_valid(body) then return body end
-  return nil
-end
-
--- ---------------------------------------------------------------------------
--- Platforms (hold grip to spawn a solid block under that hand)
--- ---------------------------------------------------------------------------
-
--- Creates a cube with a collider (CreatePrimitive adds one) at a position.
-local function spawn_cube(position, scale, rotation, col)
-  local obj = game_object.CreatePrimitive(primitive_type.cube)
-  apply_color(obj, col)
-  obj.transform.localScale = scale
-  obj.transform.position = position
-  if rotation then obj.transform.rotation = rotation end
-  return obj
-end
-
--- Thin platforms fall away: add a Rigidbody (gravity), remove the collider so
--- the player cannot stand on it, and delete it after 2 seconds.
-local function release_platform(obj)
-  if not is_valid(obj) then return end
-  obj:add_component("UnityEngine.Rigidbody")
-  remove_component(obj, "UnityEngine.Collider")
-  destroy(obj, 2.0)
-end
-
--- Thick platforms simply vanish.
-local function remove_platform(obj)
-  if is_valid(obj) then destroy(obj) end
-end
-
--- Generic grip logic shared by both platform mods. For each hand:
---   grip held and no platform yet -> build one with `build`
---   grip released and a platform exists -> `release` it and forget it
-local function grip_platforms(store, build, release)
-  for _, side in ipairs({ "left", "right" }) do
-    if xr.get_bool_feature("grip_button", side) then
-      if not is_valid(store[side]) then
-        local hand = get_hand(side)
-        if hand then store[side] = build(side, hand) end
-      end
-    elseif store[side] then
-      release(store[side])
-      store[side] = nil
-    end
-  end
-end
-
--- Releases every platform in a store (used when a mod is switched off).
-local function clear_platforms(store, release)
-  for _, side in ipairs({ "left", "right" }) do
-    if store[side] then
-      release(store[side])
-      store[side] = nil
-    end
-  end
-end
-
--- Large flat block slightly below the hand. The right side uses a different
--- size so both hands cover a similar area.
-local function build_thick_platform(side, hand)
-  local position = hand.transform.position + vec3(0, -0.1, 0)
-  local col = rainbow_color(0, 0.8, 1)
-  if side == "right" then
-    return spawn_cube(position, vec3(0.289351, 0.03870832, 0.4166668), nil, col)
-  end
-  return spawn_cube(position, vec3(0.4, 0.05, 0.4), nil, col)
-end
-
--- Thin slab that copies the hand's rotation, like a paddle.
-local function build_platform(side, hand)
-  local position = hand.transform.position + vec3(0, -0.07, 0)
-  return spawn_cube(position, vec3(0.025, 0.3, 0.4), hand.transform.rotation, rainbow_color(0, 0.8, 0.95))
-end
-
-local function thick_platforms_tick()
-  grip_platforms(thick_store, build_thick_platform, remove_platform)
-end
-
-local function thick_platforms_stop()
-  clear_platforms(thick_store, remove_platform)
-end
-
-local function platforms_tick()
-  grip_platforms(platform_store, build_platform, release_platform)
-end
-
-local function platforms_stop()
-  clear_platforms(platform_store, release_platform)
-end
-
--- ---------------------------------------------------------------------------
--- Movement mods (each *_tick runs every frame while its toggle is enabled)
--- ---------------------------------------------------------------------------
-
--- Fly: while the right trigger is held, velocity points where the hand points.
-local function hand_fly_tick()
-  if xr.get_float_feature("trigger", "right") <= 0.5 then return end
-  local hand = get_hand("right")
-  local body = get_player_body()
-  if not hand or not body then return end
-  body.velocity = hand.transform.forward * 15.0
-end
-
--- Car: like fly but follows the head direction and ignores the vertical part,
--- so you drive along the ground plane.
-local function car_tick()
-  if xr.get_float_feature("trigger", "right") <= 0.5 then return end
-  local camera = game_object.Find("Main Camera")
-  local body = get_player_body()
-  if not is_valid(camera) or not body then return end
-  local forward = camera.transform.forward * 15.0
-  body.velocity = vec3(forward.x, 0, forward.z)
-end
-
--- Slingshot: instead of overwriting velocity, keeps adding velocity change in
--- the hand direction, so speed builds up while the trigger is held.
-local function slingshot_fly_tick()
-  if xr.get_float_feature("trigger", "right") <= 0.5 then return end
-  local hand = get_hand("right")
-  local body = get_player_body()
-  if not hand or not body then return end
-  body:AddForce(hand.transform.forward * 1.0, force_mode.velocity_change)
-end
-
--- Long arms: scales the whole player up; the stop function resets it.
-local function long_arms_tick()
-  local player = get_player()
-  if player then player.transform.localScale = vec3(1.5, 1.5, 1.5) end
-end
-
-local function long_arms_stop()
-  local player = get_player()
-  if player then player.transform.localScale = vec3(1, 1, 1) end
-end
-
--- Calls the static PhotonNetwork.Disconnect() method (leaves the lobby).
-local function disconnect_photon()
-  local photon = find_class("Photon.Pun.PhotonNetwork")
-  if photon then photon.Disconnect() end
-end
-
--- Destroys the finger sphere. It is recreated on the next menu open, which is
--- needed after switching hands because it lives on the opposite hand.
-local function reset_reference()
-  if is_valid(state.reference) then destroy(state.reference) end
-  state.reference = nil
-end
-
--- ---------------------------------------------------------------------------
--- Menu content (pure data: the menu builder turns this into 3D buttons)
--- ---------------------------------------------------------------------------
--- Each entry is a table:
---   text        label shown on the button
---   tooltip     text printed to the console when pressed
---   action      function run when pressed (non-toggle buttons)
---   toggle      true if the button switches on/off
---   enabled     initial state of a toggle (nil = off)
---   on_enable / on_disable   run once when the toggle changes
---   on_tick     run every frame while the toggle is on
-local categories = {
-  main = {
-    { text = "Settings", tooltip = "Opens the settings", action = function() set_category("settings") end },
-    { text = "Movement", tooltip = "Opens movement", action = function() set_category("movement") end }
-  },
-  settings = {
-    { text = "back", tooltip = "Goes back to main menu", action = function() set_category("main") end },
-    {
-      text = "Right hand menu",
-      tooltip = "Sets the menu to right hand",
-      toggle = true,
-      on_enable = function() state.right_handed = true reset_reference() end,
-      on_disable = function() state.right_handed = false reset_reference() end
-    },
-    {
-      text = "Disconnect button",
-      tooltip = "Toggles the disconnect button",
-      toggle = true,
-      enabled = true,
-      on_enable = function() state.disconnect_button = true end,
-      on_disable = function() state.disconnect_button = false end
-    },
-    {
-      text = "FPS counter",
-      tooltip = "Toggles the fps counter",
-      toggle = true,
-      enabled = true,
-      on_enable = function() state.fps_counter = true end,
-      on_disable = function() state.fps_counter = false end
-    }
-  },
-  movement = {
-    { text = "back", tooltip = "Goes back to main menu", action = function() set_category("main") end },
-    { text = "PlatForms thicker", tooltip = "Head Fly", toggle = true, on_tick = thick_platforms_tick, on_disable = thick_platforms_stop },
-    { text = "PlatForms", tooltip = "Plats", toggle = true, on_tick = platforms_tick, on_disable = platforms_stop },
-    { text = "Fly", tooltip = "Hand Fly", toggle = true, on_tick = hand_fly_tick },
-    { text = "Long Arms", tooltip = "Longer Arms", toggle = true, on_tick = long_arms_tick, on_disable = long_arms_stop },
-    { text = "Car", tooltip = "Driving in my car right after a beer.", toggle = true, on_tick = car_tick },
-    { text = "SlingshotFly", tooltip = "luanches yourself", toggle = true, on_tick = slingshot_fly_tick }
-  }
-}
-
--- Switches category and goes back to its first page.
-set_category = function(name)
-  state.category = name
-  state.page = 0
-end
-
--- ---------------------------------------------------------------------------
--- Paging
--- ---------------------------------------------------------------------------
-
--- Zero-based index of the last page of the current category.
-local function last_page()
-  local count = #categories[state.category]
-  return math.max(0, math.ceil(count / buttons_per_page) - 1)
-end
-
--- Moves by +1 / -1 and wraps around at both ends.
-local function change_page(delta)
-  state.page = state.page + delta
-  if state.page < 0 then state.page = last_page() end
-  if state.page > last_page() then state.page = 0 end
-end
-
--- Runs when a menu entry is pressed. Toggles flip `enabled` and fire the
--- enable/disable callbacks; plain buttons just run `action`. pcall keeps a
--- broken callback from crashing the menu loop.
-local function press_entry(entry)
-  if entry.toggle then
-    entry.enabled = not entry.enabled
-    if entry.enabled then
-      print("[ENABLE] " .. entry.tooltip)
-      if entry.on_enable then pcall(entry.on_enable) end
-    else
-      print("[DISABLE] " .. entry.tooltip)
-      if entry.on_disable then pcall(entry.on_disable) end
-    end
-  else
-    print("[ENABLE] " .. entry.tooltip)
-    if entry.action then pcall(entry.action) end
-  end
-end
-
--- ---------------------------------------------------------------------------
--- Building the 3D menu
--- ---------------------------------------------------------------------------
-
--- Creates a UI Text label under `parent_transform` and returns the Text
--- component plus its RectTransform (used to position and size it).
--- alignment 4 = middle-center; style 0 normal, 1 bold, 2 italic.
--- Font size 1 with "best fit" lets Unity scale the text to the rect size,
--- which is required because the canvas is tiny in world space.
-local function create_text(parent_transform, content, col, rich, style)
-  local text_obj = game_object.new()
-  text_obj.transform:SetParent(parent_transform)
-  local label = text_obj:add_component("UnityEngine.UI.Text")
-  if font then label.font = font end
-  label.text = content
-  label.fontSize = 1
-  label.color = col
-  label.supportRichText = rich
-  label.fontStyle = style
-  label.alignment = 4
-  label.resizeTextForBestFit = true
-  label.resizeTextMinSize = 0
-  local rect = text_obj:get_component("UnityEngine.RectTransform")
-  return label, rect
-end
-
--- Creates one pressable button:
---   * a cube child of the menu (the visible button, a trigger collider)
---   * a text label on the canvas
---   * a hit box record used by check_presses
--- position/scale are in the menu's local space; text_position is where the
--- label sits on the canvas. `rainbow_on` = animated color, otherwise dark.
--- `index` shifts the rainbow hue so neighbouring buttons differ.
-local function create_button(id, action, label, position, scale, text_position, text_size, rainbow_on, text_col, rich, style, index)
-  local cube = game_object.CreatePrimitive(primitive_type.cube)
-  remove_component(cube, "UnityEngine.Rigidbody")
-  local collider = cube:get_component("UnityEngine.BoxCollider")
-  if is_valid(collider) then collider.isTrigger = true end
-  cube.transform:SetParent(state.menu.transform)
-  cube.transform.localRotation = identity
-  cube.transform.localScale = vec3(scale[1], scale[2], scale[3])
-  cube.transform.localPosition = vec3(position[1], position[2], position[3])
-  if rainbow_on then
-    register_rainbow(cube, (index or 0) * rainbow_spread + 0.5, 0.55, 1)
-  else
-    apply_color(cube, dark_button)
-  end
-
-  local _, rect = create_text(state.canvas_obj.transform, label, text_col, rich, style)
-  rect.localPosition = vec3(0, 0, 0)
-  rect.sizeDelta = vec2(text_size[1], text_size[2])
-  rect.localPosition = vec3(text_position[1], text_position[2], text_position[3])
-  rect.rotation = text_rotation
-
-  -- Store the button's box in local space for touch detection.
-  state.hit_boxes[#state.hit_boxes + 1] = {
-    id = id,
-    action = action,
-    px = position[1], py = position[2], pz = position[3],
-    sx = scale[1], sy = scale[2], sz = scale[3]
-  }
-end
-
--- Builds the whole menu from scratch: root, background, canvas, title, FPS
--- label, fixed buttons (disconnect, page arrows) and the entries of the
--- current page. It is called again after every press, so the new toggle
--- states and page appear immediately.
-local function create_menu()
-  ensure_font()
-  state.hit_boxes = {}
-  state.rainbow_items = {}
-
-  -- Invisible root: no physics, no collider, no renderer. Everything else is
-  -- parented to it so moving/rotating the root moves the whole menu.
-  local menu = game_object.CreatePrimitive(primitive_type.cube)
-  remove_component(menu, "UnityEngine.Rigidbody")
-  remove_component(menu, "UnityEngine.BoxCollider")
-  remove_component(menu, "UnityEngine.Renderer")
-  menu.transform.localScale = menu_scale
-  state.menu = menu
-
-  -- Rainbow background panel.
-  local background = game_object.CreatePrimitive(primitive_type.cube)
-  remove_component(background, "UnityEngine.Rigidbody")
-  remove_component(background, "UnityEngine.BoxCollider")
-  background.transform:SetParent(menu.transform)
-  background.transform.rotation = identity
-  background.transform.localScale = menu_size
-  background.transform.position = vec3(0.05, 0, 0)
-  register_rainbow(background, 0, 0.35, 0.95)
-
-  -- World-space canvas for all text. renderMode 2 = WorldSpace. A high
-  -- dynamicPixelsPerUnit keeps the tiny text sharp.
-  local canvas_obj = game_object.new()
-  canvas_obj.transform:SetParent(menu.transform)
-  state.canvas_obj = canvas_obj
-  local canvas = canvas_obj:add_component("UnityEngine.Canvas")
-  local scaler = canvas_obj:add_component("UnityEngine.UI.CanvasScaler")
-  pcall(function() canvas_obj:add_component("UnityEngine.UI.GraphicRaycaster") end)
+  local canvas = root:add_component("UnityEngine.Canvas")
   canvas.renderMode = 2
-  scaler.dynamicPixelsPerUnit = 1000
 
-  -- Title, with the current page number.
-  local _, title_rect = create_text(canvas_obj.transform, menu_title .. " [" .. tostring(state.page + 1) .. "]", text_colors[1], true, 1)
-  title_rect.localPosition = vec3(0, 0, 0)
-  title_rect.sizeDelta = vec2(0.28, 0.05)
-  title_rect.position = vec3(0.06, 0, 0.165)
-  title_rect.rotation = text_rotation
+  panel_text = root:add_component("UnityEngine.UI.Text")
+  panel_text.text = "slow motion: off"
+  panel_text.fontSize = 24
+  panel_text.color = color(0.9, 0.95, 0.9, 1)
+  panel_text.alignment = 4
+  panel_text.rectTransform.sizeDelta = vec2(300, 150)
 
-  -- Optional FPS label (its text is updated by update_fps).
-  state.fps_text = nil
-  if state.fps_counter then
-    local fps_label, fps_rect = create_text(canvas_obj.transform, "FPS: " .. tostring(math.floor(state.fps_value + 0.5)), text_colors[1], true, 2)
-    fps_rect.localPosition = vec3(0, 0, 0)
-    fps_rect.position = vec3(0.06, 0, 0.135)
-    fps_rect.sizeDelta = vec2(0.28, 0.02)
-    fps_rect.rotation = text_rotation
-    state.fps_text = fps_label
-  end
-
-  -- Optional disconnect button at the top.
-  if state.disconnect_button then
-    create_button("disconnect", disconnect_photon, "Disconnect",
-      { 0.56, 0, 0.6 }, { 0.09, 0.9, 0.08 },
-      { 0.064, 0, 0.23 }, { 0.2, 0.03 },
-      false, text_colors[1], false, 0)
-  end
-
-  -- Page arrows on the left and right edges.
-  create_button("previous_page", function() change_page(-1) end, "<",
-    { 0.56, 0.65, 0 }, { 0.09, 0.2, 0.9 },
-    { 0.064, 0.195, 0 }, { 0.2, 0.03 },
-    false, text_colors[1], false, 0)
-
-  create_button("next_page", function() change_page(1) end, ">",
-    { 0.56, -0.65, 0 }, { 0.09, 0.2, 0.9 },
-    { 0.064, -0.195, 0 }, { 0.2, 0.03 },
-    false, text_colors[1], false, 0)
-
-  -- Entry buttons for the current page. `first..last` is the slice of the
-  -- category list that fits on this page; each row is moved down by 0.1.
-  -- Enabled toggles get the animated rainbow, everything else stays dark.
-  local list = categories[state.category]
-  local first = state.page * buttons_per_page + 1
-  local last = math.min(#list, first + buttons_per_page - 1)
-  for i = first, last do
-    local entry = list[i]
-    local offset = (i - first) * 0.1
-    local on = entry.toggle and entry.enabled
-    create_button("entry_" .. i, function() press_entry(entry) end, entry.text,
-      { 0.56, 0, 0.28 - offset }, { 0.09, 0.9, 0.08 },
-      { 0.064, 0, 0.111 - offset / 2.6 }, { 0.2, 0.03 },
-      on and true or false,
-      text_colors[2],
-      true, 2, i - first)
-  end
+  pulse_material = root:get_component("UnityEngine.Renderer").material
+  return root
 end
 
--- Sticks the menu to the menu hand every frame. The right-hand version is
--- flipped 180 degrees around Z so the text still reads correctly.
-local function recenter_menu()
-  local side = state.right_handed and "right" or "left"
-  local hand = get_hand(side)
-  if not hand or not is_valid(state.menu) then return end
-  state.menu.transform.position = hand.transform.position
-  if state.right_handed then
-    local angles = hand.transform.eulerAngles
-    state.menu.transform.rotation = euler_to_quat(angles.x, angles.y, angles.z + 180)
-  else
-    state.menu.transform.rotation = hand.transform.rotation
-  end
+local function lerp_color(a, b, t)
+  return color(
+    a.x + (b.x - a.x) * t,
+    a.y + (b.y - a.y) * t,
+    a.z + (b.z - a.z) * t,
+    a.w
+  )
 end
 
--- Creates the "finger": a tiny white sphere parented to the OPPOSITE hand,
--- slightly below it. Its position is what check_presses tests against.
-local function create_reference()
-  local other = get_hand(state.right_handed and "left" or "right")
-  if not other then return end
-  local ref = game_object.CreatePrimitive(primitive_type.sphere)
-  ref.transform:SetParent(other.transform)
-  apply_color(ref, white_text)
-  ref.transform.localPosition = vec3(0, -0.1, 0)
-  ref.transform.localScale = vec3(0.01, 0.01, 0.01)
-  remove_component(ref, "UnityEngine.Collider")
-  state.reference = ref
-end
+local slowmo = false
 
--- Destroys and rebuilds the menu in place (after a press).
-recreate_menu = function()
-  if is_valid(state.menu) then destroy(state.menu) end
-  create_menu()
-  recenter_menu()
-end
-
--- Removes every menu object and clears references (menu closed).
-local function destroy_menu()
-  if is_valid(state.menu) then destroy(state.menu) end
-  reset_reference()
-  state.menu = nil
-  state.canvas_obj = nil
-  state.fps_text = nil
-  state.hit_boxes = {}
-  state.rainbow_items = {}
-end
-
--- ---------------------------------------------------------------------------
--- Touch detection
--- ---------------------------------------------------------------------------
-
--- Converts the finger sphere's world position into the menu's local space
--- (InverseTransformPoint), then tests it against each button's box. Because
--- both are in local space, rotation and position of the hand do not matter.
--- A hit needs |p - center| <= half size + margin on all three axes. The first
--- matching button runs its action and the menu is rebuilt; the cooldown stops
--- one touch from firing many times.
-local function check_presses()
-  if not is_valid(state.menu) or not is_valid(state.reference) then return end
-  local now = get_time()
-  if now < state.last_press + press_cooldown then return end
-  local p = state.menu.transform:InverseTransformPoint(state.reference.transform.position)
-  for _, box in ipairs(state.hit_boxes) do
-    if math.abs(p.x - box.px) <= box.sx * 0.5 + press_margin_x
-      and math.abs(p.y - box.py) <= box.sy * 0.5 + press_margin_y
-      and math.abs(p.z - box.pz) <= box.sz * 0.5 + press_margin_z then
-      state.last_press = now
-      pcall(box.action)
-      recreate_menu()
-      return
-    end
-  end
-end
-
--- ---------------------------------------------------------------------------
--- FPS counter
--- ---------------------------------------------------------------------------
-
--- Counts frames over a 0.5 second window: fps = frames passed / seconds
--- passed (time.frameCount is Unity's global frame counter). The label is
--- refreshed twice per second.
-local function update_fps()
-  local now = get_time()
-  local frames = time.frameCount
-  if not state.fps_time then
-    state.fps_time = now
-    state.fps_frames = frames
-    return
-  end
-  if now - state.fps_time < 0.5 then return end
-  state.fps_value = (frames - state.fps_frames) / (now - state.fps_time)
-  state.fps_time = now
-  state.fps_frames = frames
-  if state.fps_counter and is_valid(state.fps_text) then
-    state.fps_text.text = "FPS: " .. tostring(math.floor(state.fps_value + 0.5))
-  end
-end
-
--- ---------------------------------------------------------------------------
--- Main loop
--- ---------------------------------------------------------------------------
-
--- Runs the on_tick function of every enabled toggle, in every category, even
--- while the menu is closed (mods keep working after you let go of the button).
-local function run_enabled_entries()
-  for _, list in pairs(categories) do
-    for _, entry in ipairs(list) do
-      if entry.enabled and entry.on_tick then pcall(entry.on_tick) end
-    end
-  end
-end
-
--- One frame of logic:
---   1. On the first frame after a reload, run the previous script's cleanup.
---   2. Read the open button (secondary button on the menu hand).
---   3. Run active mods.
---   4. If the menu is closed: open it when the button is held.
---      If it is open: while held, follow the hand, animate colors, check
---      presses and update FPS; when released, destroy it.
 local function tick()
-  if previous_cleanup then
-    pcall(previous_cleanup)
-    previous_cleanup = nil
-  end
-  local open = xr.get_bool_feature("secondary_button", state.right_handed and "right" or "left")
-  run_enabled_entries()
-  if not is_valid(state.menu) then
-    if open then
-      create_menu()
-      recenter_menu()
-      if not is_valid(state.reference) then create_reference() end
+  local grip = xr.get_bool_feature("grip_button", "left")
+  if grip and not last_grip then
+    slowmo = not slowmo
+    set_timescale(slowmo and 0.25 or 1)
+    if panel_text then
+      panel_text.text = slowmo and "slow motion: on" or "slow motion: off"
     end
-    return
   end
-  if open then
-    recenter_menu()
-    update_rainbow()
-    check_presses()
-    update_fps()
-  else
-    destroy_menu()
+  last_grip = grip
+
+  if is_valid(pulse_material) then
+    local t = 0.5 + 0.5 * math.sin(get_time() * 1.5)
+    pulse_material.color = lerp_color(pulse_a, pulse_b, t)
   end
 end
 
--- Exposed as a global so the NEXT run of this script can call it (see
--- previous_cleanup at the top). Removes the menu, platforms and resets scale.
-silents_menu_cleanup = function()
-  destroy_menu()
-  clear_platforms(platform_store, remove_platform)
-  clear_platforms(thick_store, remove_platform)
-  long_arms_stop()
-end
-
--- Run Lua tasks from the Unity main thread by hooking FixedUpdate. Only one
--- tick hook can exist, so install it only if none is active yet.
-if not has_tick_hook() then
-  local ok, err = pcall(set_tick_hook, "GorillaLocomotion.Player", "FixedUpdate", "Assembly-CSharp.dll")
-  if not ok then print("hook", err) end
-end
-
--- Remove tasks from earlier runs, then register this script's loop. pcall
--- keeps one error from killing the task (an uncaught error would cancel it).
-cancel_all()
-on_update(function()
-  local ok, err = pcall(tick)
-  if not ok then print("tick_error", err) end
+on_game_start(function()
+  if not has_class("UnityEngine.UI.Text") then
+    print("no UI namespace in this build, panel text skipped")
+  end
+  if not has_tick_hook() then
+    pcall(set_tick_hook, "GorillaLocomotion.Player", "FixedUpdate", "Assembly-CSharp.dll")
+  end
+  local camera = scene.find_object("Main Camera")
+  local forward = is_valid(camera) and camera.transform.forward or vec3(0, 0, 1)
+  local spot = is_valid(camera) and camera.transform.position + forward * 2.0 or vec3(0, 2, 0)
+  panel_root = build_panel(spot)
+  if is_valid(panel_root) then
+    local listener = scene.find_object("AudioListener")
+    if is_valid(listener) then
+      panel_root.transform:SetParent(listener.gameObject.transform, false)
+    end
+  end
+  cancel_all()
+  on_update(tick)
+  print("panel ready, squeeze left grip to toggle slow motion")
 end)
 ```
+
+Run it, squeeze the left grip: time slows, the label flips, the panel slowly breathes between two greens. Run it again: the old panel dies in `cleanup_old()`, a fresh one appears. Reset the Lua state and the old objects become invalid references instead of duplicates - that is the two layer cleanup doing its job.
+
+Things to change for your own script, deliberately listed so you have no excuse to keep them: the panel shape and size, the trigger button, what the toggle does, the two colors and how they move, the beep idea. `audio.load("ui_click.wav")` plus `audio.play(clip, { volume = 0.6 })` inside the toggle branch is three lines and gives instant feedback.
 
 ## Links
 
 - Docs site: https://silenterased.github.io/BNMExplorer/
 - This file on GitHub Pages: https://silenterased.github.io/BNMExplorer/llms.txt
 - The mod serves the same file at http://DEVICE_IP:8080/llms.txt
-- Source repository: https://github.com/SilentErased/BNMExplorer)TXT";
+- Source repository: https://github.com/SilentErased/BNMExplorer
+)TXT";
 
 const char* get_llms_txt() {
     return k_llms_txt;

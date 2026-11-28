@@ -9,6 +9,7 @@
 #include "lua_reflect.hpp"
 #include "lua_modules.hpp"
 #include "lua_stdlib.hpp"
+#include "lua_audio.hpp"
 
 #include "autodetect/variant_namespace.hpp"
 #ifndef BNM_APP_NAMESPACE_OPEN
@@ -149,6 +150,7 @@ static void luabnm_openlibs(lua_State* L) {
 
     module_cache_reset(L);
     register_function(L, "require", l_require);
+    register_function(L, "pcall", l_safe_pcall);
     register_function(L, "print", l_print);
     register_function(L, "vec2", l_vec2);
     register_function(L, "vec3", l_vec3);
@@ -176,6 +178,7 @@ static void luabnm_openlibs(lua_State* L) {
     register_lua_hooks(L);
     register_lua_reflect(L);
     l_register_stdlib(L);
+    register_lua_audio(L);
 
     lua_newtable(L);
     lua_pushcfunction(L, l_scene_get_objects);
@@ -212,10 +215,19 @@ static lua_State* rt_ensure_state() {
     return L;
 }
 
-static std::string execute_lua_chunk(const std::string& code, const std::string& chunk_name, bool restart) {
+struct rt_exec_job {
+    std::mutex m;
+    std::condition_variable cv;
+    bool done = false;
+    bool abandoned = false;
+    std::string out;
+};
+
+static std::string execute_lua_chunk_impl(const std::string& code, const std::string& chunk_name, bool restart) {
     try {
         std::lock_guard<std::recursive_mutex> lk(g_rt.mtx);
         BNM::AttachIl2Cpp();
+        rt_install_crash_handlers();
         lua_State* L = rt_ensure_state();
         if (!L) return "Error: failed to create Lua state";
         if (restart) {
@@ -236,13 +248,20 @@ static std::string execute_lua_chunk(const std::string& code, const std::string&
             const char* msg = lua_tostring(L, -1);
             error_text = std::string("SyntaxError: ") + (msg ? msg : "unknown");
         } else {
-            err = lua_pcall(L, 0, LUA_MULTRET, 0);
+            rt_push_error_handler(L);
+            lua_insert(L, base + 1);
+            err = lua_pcall(L, 0, LUA_MULTRET, base + 1);
             if (err) {
-                const char* msg = lua_tostring(L, -1);
-                error_text = std::string("RuntimeError: ") + (msg ? msg : "unknown");
+                error_text = "RuntimeError: ";
+                if (lua_isstring(L, -1)) {
+                    const char* msg = lua_tostring(L, -1);
+                    error_text += msg ? msg : "unknown";
+                } else {
+                    error_text += std::string(luaL_typename(L, -1)) + " error object";
+                }
             } else {
                 int top = lua_gettop(L);
-                for (int i = base + 1; i <= top; i++) rt_append_output(describe_value(L, i));
+                for (int i = base + 2; i <= top; i++) rt_append_output(describe_value(L, i));
             }
         }
         g_rt.deadline = 0.0;
@@ -262,21 +281,50 @@ static std::string execute_lua_chunk(const std::string& code, const std::string&
     }
 }
 
-static std::string execute_lua_bnm(const std::string& code) {
-    return execute_lua_chunk(code, "=lua", false);
+static std::string execute_lua_chunk(const std::string& code, const std::string& chunk_name, bool restart, bool prefer_main) {
+    if (!prefer_main || mt_on_main_thread() || !mt_pumping())
+        return execute_lua_chunk_impl(code, chunk_name, restart);
+    auto job = std::make_shared<rt_exec_job>();
+    mt_post([job, code, chunk_name, restart]() -> bool {
+        std::string out = execute_lua_chunk_impl(code, chunk_name, restart);
+        bool abandoned = false;
+        {
+            std::lock_guard<std::mutex> lk(job->m);
+            abandoned = job->abandoned;
+            job->out = std::move(out);
+            job->done = true;
+        }
+        if (abandoned) {
+            std::lock_guard<std::mutex> out_lk(g_rt.out_mtx);
+            g_rt.async_output += (g_rt.async_output.empty() ? "" : "\n") + job->out;
+        }
+        job->cv.notify_all();
+        return true;
+    }, true);
+    std::unique_lock<std::mutex> lk(job->m);
+    if (!job->cv.wait_for(lk, std::chrono::seconds(15), [&] { return job->done; })) {
+        job->abandoned = true;
+        return "chunk queued on the main thread and still running; output will appear in the Output panel";
+    }
+    return job->out;
 }
 
-static std::string execute_lua_workspace(const std::string& rel_path) {
+static std::string execute_lua_bnm(const std::string& code, bool prefer_main = true) {
+    return execute_lua_chunk(code, "=lua", false, prefer_main);
+}
+
+static std::string execute_lua_workspace(const std::string& rel_path, bool prefer_main = true) {
     std::string clean = ws_sanitize_path(rel_path.empty() ? "main.lua" : rel_path, true);
     if (clean.empty()) return "Error: invalid file path";
     std::string source;
     if (!ws_read_file(clean, source)) return "Error: file not found: " + clean;
-    return execute_lua_chunk(source, "=" + clean, true);
+    return execute_lua_chunk(source, "=" + clean, true, prefer_main);
 }
 
 static void stop_lua_bnm() {
     std::lock_guard<std::recursive_mutex> lk(g_rt.mtx);
     for (auto& t : g_rt.tasks) t.dead = true;
+    g_rt.deferred.clear();
     lua_hooks_deactivate_all();
 }
 
@@ -284,6 +332,7 @@ static void reset_lua_bnm() {
     std::lock_guard<std::recursive_mutex> lk(g_rt.mtx);
     BNM::AttachIl2Cpp();
     g_rt.tasks.clear();
+    g_rt.deferred.clear();
     lua_hooks_deactivate_all();
     if (g_rt.state) {
         lua_close(g_rt.state);

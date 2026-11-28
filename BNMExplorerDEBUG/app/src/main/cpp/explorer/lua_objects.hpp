@@ -255,6 +255,16 @@ static member_info find_member(Il2CppClass* klass, const char* name) {
         }
         if (out.found || out.has_method) break;
     }
+    if (out.found && !out.getter && !out.field) {
+        const auto& getters = find_candidates(klass, ("get_" + std::string(name)).c_str(), 0);
+        if (!getters.empty() && getters.front()->methodPointer) out.getter = getters.front();
+    }
+    if (out.found && !out.setter) {
+        const auto& setters = find_candidates(klass, ("set_" + std::string(name)).c_str(), 1);
+        if (!setters.empty() && setters.front()->methodPointer) out.setter = setters.front();
+    }
+    if (out.getter && !out.getter->methodPointer) out.getter = nullptr;
+    if (out.setter && !out.setter->methodPointer) out.setter = nullptr;
     cache[key] = out;
     return out;
 }
@@ -282,6 +292,8 @@ static void format_exception(Il2CppException* exc, char* out, size_t n) {
     }
 }
 
+static void* rt_guarded_invoke(MethodInfo* mi, void* inst, void** args, Il2CppException** exc);
+
 static int invoke_method_info(lua_State* L, MethodInfo* mi, Il2CppObject* inst, int first, int argc) {
     if (!mi || !mi->methodPointer) return luaL_error(L, "method has no compiled pointer");
     bool is_static = (mi->flags & 0x10) != 0;
@@ -296,7 +308,10 @@ static int invoke_method_info(lua_State* L, MethodInfo* mi, Il2CppObject* inst, 
         args[i] = lua_to_arg_shaped(L, first + i, pt, slots[i]);
     }
     Il2CppException* exc = nullptr;
-    void* ret = BNM::Internal::il2cppMethods.il2cpp_runtime_invoke(mi, is_static ? nullptr : (void*)inst, argc ? args : nullptr, &exc);
+    void* ret = rt_guarded_invoke(mi, is_static ? nullptr : (void*)inst, argc ? args : nullptr, &exc);
+    if (exc == (Il2CppException*)1) {
+        return luaL_error(L, "native crash (signal) inside '%s'; the call was aborted", mi->name);
+    }
     if (exc) {
         char msg[384];
         format_exception(exc, msg, sizeof(msg));

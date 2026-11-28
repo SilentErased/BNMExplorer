@@ -1,4 +1,5 @@
 #pragma once
+#include <cctype>
 #include "json.hpp"
 #include "workspace.hpp"
 #include "luabnm.hpp"
@@ -80,7 +81,7 @@ static void register_workspace_routes(httplib::Server& svr) {
     });
 
     svr.Get("/api/ws/file", [](const httplib::Request& req, httplib::Response& res) {
-        std::string path = ws_sanitize_path(req.get_param_value("path"), true);
+        std::string path = ws_sanitize_path(req.get_param_value("path"), false);
         if (path.empty()) {
             ws_reply_error(res, "invalid file path");
             return;
@@ -131,8 +132,34 @@ static void register_workspace_routes(httplib::Server& svr) {
         std::string name = path;
         size_t slash = name.rfind('/');
         if (slash != std::string::npos) name = name.substr(slash + 1);
-        res.set_header("Content-Disposition", "attachment; filename=\"" + name + "\"");
-        res.set_content(content, "application/octet-stream");
+        std::string ext;
+        size_t dot = name.rfind('.');
+        if (dot != std::string::npos) {
+            for (size_t i = dot + 1; i < name.size(); i++) ext += (char)tolower((unsigned char)name[i]);
+        }
+        const char* type = "application/octet-stream";
+        if (ext == "png") type = "image/png";
+        else if (ext == "jpg" || ext == "jpeg") type = "image/jpeg";
+        else if (ext == "gif") type = "image/gif";
+        else if (ext == "webp") type = "image/webp";
+        else if (ext == "bmp") type = "image/bmp";
+        else if (ext == "svg") type = "image/svg+xml";
+        else if (ext == "wav") type = "audio/wav";
+        else if (ext == "ogg" || ext == "oga") type = "audio/ogg";
+        else if (ext == "mp3") type = "audio/mpeg";
+        else if (ext == "m4a" || ext == "aac") type = "audio/mp4";
+        else if (ext == "flac") type = "audio/flac";
+        else if (ext == "mp4" || ext == "webm") type = "video/mp4";
+        else if (ext == "txt" || ext == "log" || ext == "md" || ext == "ini" || ext == "cfg" || ext == "conf" || ext == "csv") type = "text/plain";
+        else if (ext == "json") type = "application/json";
+        else if (ext == "xml" || ext == "yaml" || ext == "yml") type = "text/plain";
+        else if (ext == "html") type = "text/html";
+        else if (ext == "css") type = "text/css";
+        else if (ext == "js") type = "text/javascript";
+        else if (ext == "lua") type = "text/plain";
+        bool inline_view = req.has_param("view") && req.get_param_value("view") == "1";
+        res.set_header("Content-Disposition", std::string(inline_view ? "inline" : "attachment") + "; filename=\"" + name + "\"");
+        res.set_content(content, type);
     });
 
     svr.Post("/api/ws/upload", [](const httplib::Request& req, httplib::Response& res) {
@@ -214,12 +241,14 @@ static void register_workspace_routes(httplib::Server& svr) {
     svr.Post("/api/ws/run", [](const httplib::Request& req, httplib::Response& res) {
         nlohmann::json body;
         std::string path = "main.lua";
+        bool main_thread = true;
         if (ws_parse_body(req, body)) {
             std::string requested = ws_json_string(body, "path");
             if (!requested.empty()) path = requested;
+            if (body.contains("main") && body["main"].is_boolean()) main_thread = body["main"].get<bool>();
         }
         nlohmann::json j;
-        j["output"] = execute_lua_workspace(path);
+        j["output"] = execute_lua_workspace(path, main_thread);
         ws_reply(res, j);
     });
 
